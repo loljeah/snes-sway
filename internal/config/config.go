@@ -4,11 +4,40 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
 	"gopkg.in/yaml.v3"
 )
+
+// Valid action types
+var validActionTypes = map[string]bool{
+	"sway":  true,
+	"exec":  true,
+	"key":   true,
+	"mode":  true,
+	"mouse": true,
+}
+
+// Valid button names
+var validButtons = map[string]bool{
+	"a": true, "b": true, "x": true, "y": true,
+	"l": true, "r": true,
+	"up": true, "down": true, "left": true, "right": true,
+	"select+a": true, "select+b": true, "select+x": true, "select+y": true,
+	"select+l": true, "select+r": true,
+	"select+up": true, "select+down": true, "select+left": true, "select+right": true,
+	"start+a": true, "start+b": true, "start+x": true, "start+y": true,
+	"start+l": true, "start+r": true,
+	"start+up": true, "start+down": true, "start+left": true, "start+right": true,
+}
+
+// Valid mouse actions
+var validMouseActions = map[string]bool{
+	"click_left": true, "click_right": true, "click_middle": true,
+	"move_up": true, "move_down": true, "move_left": true, "move_right": true,
+}
 
 type Device struct {
 	Path      string `yaml:"path"`
@@ -26,6 +55,7 @@ type Config struct {
 	Indicator   Indicator       `yaml:"indicator"`
 	Modes       map[string]Mode `yaml:"modes"`
 	DefaultMode string          `yaml:"default_mode"`
+	ModeTimeout int             `yaml:"mode_timeout"` // seconds, 0 = disabled
 }
 
 type Mode map[string]string // button -> action
@@ -78,6 +108,10 @@ func (m *Manager) load() error {
 	}
 	if cfg.Modes == nil {
 		cfg.Modes = make(map[string]Mode)
+	}
+	// Default mode timeout: 30 seconds (use -1 to disable)
+	if cfg.ModeTimeout == 0 {
+		cfg.ModeTimeout = 30
 	}
 
 	m.mu.Lock()
@@ -208,4 +242,110 @@ func EnsureConfigDir() error {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 	return nil
+}
+
+// ValidationWarning represents a non-fatal config issue
+type ValidationWarning struct {
+	Mode    string
+	Button  string
+	Action  string
+	Message string
+}
+
+func (w ValidationWarning) String() string {
+	if w.Mode != "" && w.Button != "" {
+		return fmt.Sprintf("[%s.%s] %s", w.Mode, w.Button, w.Message)
+	}
+	return w.Message
+}
+
+// Validate checks the config for issues and returns warnings
+func (c *Config) Validate() []ValidationWarning {
+	var warnings []ValidationWarning
+
+	// Check default mode exists
+	if _, ok := c.Modes[c.DefaultMode]; !ok && len(c.Modes) > 0 {
+		warnings = append(warnings, ValidationWarning{
+			Message: fmt.Sprintf("default_mode '%s' not defined in modes", c.DefaultMode),
+		})
+	}
+
+	// Check each mode
+	for modeName, mode := range c.Modes {
+		for button, action := range mode {
+			// Validate button name
+			if !validButtons[button] {
+				warnings = append(warnings, ValidationWarning{
+					Mode:    modeName,
+					Button:  button,
+					Message: fmt.Sprintf("unknown button '%s'", button),
+				})
+			}
+
+			// Validate action format
+			parts := strings.SplitN(action, ":", 2)
+			if len(parts) != 2 {
+				warnings = append(warnings, ValidationWarning{
+					Mode:   modeName,
+					Button: button,
+					Action: action,
+					Message: "invalid action format (expected type:command)",
+				})
+				continue
+			}
+
+			actionType := parts[0]
+			actionCmd := parts[1]
+
+			if !validActionTypes[actionType] {
+				warnings = append(warnings, ValidationWarning{
+					Mode:    modeName,
+					Button:  button,
+					Action:  action,
+					Message: fmt.Sprintf("unknown action type '%s'", actionType),
+				})
+				continue
+			}
+
+			// Validate mode references
+			if actionType == "mode" {
+				if _, ok := c.Modes[actionCmd]; !ok {
+					warnings = append(warnings, ValidationWarning{
+						Mode:    modeName,
+						Button:  button,
+						Action:  action,
+						Message: fmt.Sprintf("mode '%s' not defined", actionCmd),
+					})
+				}
+			}
+
+			// Validate mouse actions
+			if actionType == "mouse" {
+				// Extract action name (before optional :speed)
+				mouseParts := strings.SplitN(actionCmd, ":", 2)
+				mouseAction := mouseParts[0]
+				if !validMouseActions[mouseAction] {
+					warnings = append(warnings, ValidationWarning{
+						Mode:    modeName,
+						Button:  button,
+						Action:  action,
+						Message: fmt.Sprintf("unknown mouse action '%s'", mouseAction),
+					})
+				}
+			}
+		}
+	}
+
+	return warnings
+}
+
+// PrintValidationWarnings prints warnings to stderr
+func PrintValidationWarnings(warnings []ValidationWarning) {
+	if len(warnings) == 0 {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "config validation warnings:")
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "  - %s\n", w)
+	}
 }

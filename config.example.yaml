@@ -16,6 +16,10 @@ indicator:
   # Show notification on mode switch
   notify: true
 
+# Mode timeout in seconds (0 or negative to disable)
+# After this time of inactivity, auto-return to default_mode
+mode_timeout: 30
+
 # Button mappings per mode
 # Available buttons: a, b, x, y, l, r, up, down, left, right
 # Modifier buttons (do nothing alone): start, select
@@ -24,6 +28,10 @@ indicator:
 #   sway:<command>  - run swaymsg <command>
 #   exec:<command>  - run shell command
 #   key:<keyname>   - send keypress via wtype (e.g., key:Up, key:Return)
+#   mouse:<action>  - mouse control (requires wlrctl)
+#                     click_left, click_right, click_middle
+#                     move_up, move_down, move_left, move_right
+#                     optional speed: mouse:move_up:30
 #   mode:<name>     - switch to mode
 
 modes:
@@ -46,6 +54,7 @@ modes:
     select+b: "sway:kill"
     select+l: "sway:focus output left"
     select+r: "sway:focus output right"
+    select+x: "mode:mouse"
     # Start chords
     start+a:  "exec:wofi --show drun"
 
@@ -67,6 +76,30 @@ modes:
     select+b: "sway:kill"
     select+l: "sway:focus output left"
     select+r: "sway:focus output right"
+
+  mouse:
+    # D-pad moves cursor (speed: 20 pixels per press)
+    up:     "mouse:move_up:20"
+    down:   "mouse:move_down:20"
+    left:   "mouse:move_left:20"
+    right:  "mouse:move_right:20"
+    # A: left click
+    a:      "mouse:click_left"
+    # B: exit mouse mode
+    b:      "mode:navigation"
+    # X: right click
+    x:      "mouse:click_right"
+    # Y: middle click
+    y:      "mouse:click_middle"
+    # Shoulders: adjust speed (use different speeds)
+    l:      "mouse:move_left:50"
+    r:      "mouse:move_right:50"
+    # Select chords
+    select+b: "sway:kill"
+    select+up:    "mouse:move_up:5"
+    select+down:  "mouse:move_down:5"
+    select+left:  "mouse:move_left:5"
+    select+right: "mouse:move_right:5"
 
   launcher:
     up:     "sway:focus up"
