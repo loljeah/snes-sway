@@ -17,28 +17,53 @@ indicator:
   notify: true
 
 # Button mappings per mode
-# Available buttons: a, b, x, y, l, r, start, select, up, down, left, right
-# Chord buttons (hold Select + button): select+l, select+r, select+a, select+b, etc.
+# Available buttons: a, b, x, y, l, r, up, down, left, right
+# Modifier buttons (do nothing alone): start, select
+# Chord buttons: select+<btn>, start+<btn>
 # Actions:
 #   sway:<command>  - run swaymsg <command>
 #   exec:<command>  - run shell command
+#   key:<keyname>   - send keypress via wtype (e.g., key:Up, key:Return)
 #   mode:<name>     - switch to mode
 
 modes:
   navigation:
+    # D-pad: window focus
     up:     "sway:focus up"
     down:   "sway:focus down"
     left:   "sway:focus left"
     right:  "sway:focus right"
-    a:      "sway:fullscreen toggle"
+    # A: enter input mode (D-pad sends arrow keys)
+    a:      "mode:input"
     b:      "sway:scratchpad show"
     x:      "sway:floating toggle"
     y:      "sway:layout toggle split"
+    # Shoulders: workspace navigation
     l:      "sway:workspace prev"
     r:      "sway:workspace next"
-    start:  "exec:wofi --show drun"
-    # select: does nothing alone - used as modifier for chords
-    # Chords: Select + button
+    # Select chords
+    select+a: "sway:fullscreen toggle"
+    select+b: "sway:kill"
+    select+l: "sway:focus output left"
+    select+r: "sway:focus output right"
+    # Start chords
+    start+a:  "exec:wofi --show drun"
+
+  input:
+    # D-pad sends arrow keys to focused window
+    up:     "key:Up"
+    down:   "key:Down"
+    left:   "key:Left"
+    right:  "key:Right"
+    # A: Enter/confirm
+    a:      "key:Return"
+    # B: exit input mode
+    b:      "mode:navigation"
+    x:      "key:Escape"
+    y:      "key:Tab"
+    l:      "key:Page_Up"
+    r:      "key:Page_Down"
+    # Select chords still work
     select+b: "sway:kill"
     select+l: "sway:focus output left"
     select+r: "sway:focus output right"
@@ -54,12 +79,11 @@ modes:
     y:      "exec:code"
     l:      "sway:workspace prev"
     r:      "sway:workspace next"
-    start:  "exec:wofi --show drun"
-    # select: does nothing alone - used as modifier for chords
     # Chords
     select+b: "sway:kill"
     select+l: "sway:focus output left"
     select+r: "sway:focus output right"
+    start+a:  "exec:wofi --show drun"
 
 # Default mode on startup
 default_mode: navigation
