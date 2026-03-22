@@ -1,0 +1,5 @@
+# Binary (not the cmd directory)
+/snes-sway
+*.exe
+vendor/
+result

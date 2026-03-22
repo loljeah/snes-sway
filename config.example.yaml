@@ -1,0 +1,56 @@
+# snes-sway configuration
+# Copy to ~/.config/snes-sway/config.yaml
+
+# Device settings
+device:
+  # Auto-detect Arduino Leonardo by USB ID (default)
+  # Set path to override auto-detection
+  # path: /dev/input/event28
+  vendor_id: 0x2341
+  product_id: 0x8036
+
+# Mode indicator
+indicator:
+  # Write current mode to file for waybar
+  mode_file: ~/.config/snes-sway/mode
+  # Show notification on mode switch
+  notify: true
+
+# Button mappings per mode
+# Available buttons: a, b, x, y, l, r, start, select, up, down, left, right
+# Actions:
+#   sway:<command>  - run swaymsg <command>
+#   exec:<command>  - run shell command
+#   mode:<name>     - switch to mode
+
+modes:
+  navigation:
+    up:     "sway:focus up"
+    down:   "sway:focus down"
+    left:   "sway:focus left"
+    right:  "sway:focus right"
+    a:      "sway:fullscreen toggle"
+    b:      "sway:kill"
+    x:      "sway:floating toggle"
+    y:      "sway:layout toggle split"
+    l:      "sway:workspace prev"
+    r:      "sway:workspace next"
+    start:  "exec:wofi --show drun"
+    select: "mode:launcher"
+
+  launcher:
+    up:     "sway:focus up"
+    down:   "sway:focus down"
+    left:   "sway:focus left"
+    right:  "sway:focus right"
+    a:      "exec:foot"
+    b:      "exec:firefox"
+    x:      "exec:thunar"
+    y:      "exec:code"
+    l:      "sway:workspace prev"
+    r:      "sway:workspace next"
+    start:  "exec:wofi --show drun"
+    select: "mode:navigation"
+
+# Default mode on startup
+default_mode: navigation

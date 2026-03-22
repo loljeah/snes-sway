@@ -1,0 +1,8 @@
+{
+  "custom/snes-mode": {
+    "exec": "cat ~/.config/snes-sway/mode 2>/dev/null || echo 'off'",
+    "interval": 1,
+    "format": "🎮 {}",
+    "tooltip": "SNES controller mode"
+  }
+}
