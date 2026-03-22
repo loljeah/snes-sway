@@ -13,15 +13,16 @@ import (
 // Buttons are sent as BTN_TRIGGER, BTN_THUMB, etc. (codes 0x120-0x127)
 // D-pad is sent as ABS_X (-1/0/+1) and ABS_Y (-1/0/+1)
 const (
-	// Button codes (EV_KEY)
-	BTN_B      = 0x120 // BTN_TRIGGER
-	BTN_Y      = 0x121 // BTN_THUMB
-	BTN_SELECT = 0x122 // BTN_THUMB2
-	BTN_START  = 0x123 // BTN_TOP
-	BTN_A      = 0x124 // BTN_TOP2
-	BTN_X      = 0x125 // BTN_PINKIE
-	BTN_L      = 0x126 // BTN_BASE
-	BTN_R      = 0x127 // BTN_BASE2
+	// Button codes (EV_KEY) - mapped from DaemonBite HID report
+	// Bit order in buttons byte: B(0), A(1), Y(2), X(3), L(4), R(5), Select(6), Start(7)
+	BTN_B      = 0x120 // BTN_TRIGGER - bit 0
+	BTN_A      = 0x121 // BTN_THUMB - bit 1
+	BTN_Y      = 0x122 // BTN_THUMB2 - bit 2
+	BTN_X      = 0x123 // BTN_TOP - bit 3
+	BTN_L      = 0x124 // BTN_TOP2 - bit 4
+	BTN_R      = 0x125 // BTN_PINKIE - bit 5
+	BTN_SELECT = 0x126 // BTN_BASE - bit 6
+	BTN_START  = 0x127 // BTN_BASE2 - bit 7
 )
 
 type Button string
