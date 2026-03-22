@@ -37,7 +37,7 @@ modes:
     l:      "sway:workspace prev"
     r:      "sway:workspace next"
     start:  "exec:wofi --show drun"
-    select: "mode:launcher"
+    # select: does nothing alone - used as modifier for chords
     # Chords: Select + button
     select+b: "sway:kill"
     select+l: "sway:focus output left"
@@ -55,7 +55,7 @@ modes:
     l:      "sway:workspace prev"
     r:      "sway:workspace next"
     start:  "exec:wofi --show drun"
-    select: "mode:navigation"
+    # select: does nothing alone - used as modifier for chords
     # Chords
     select+b: "sway:kill"
     select+l: "sway:focus output left"
