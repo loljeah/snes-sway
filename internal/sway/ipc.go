@@ -10,6 +10,7 @@ import (
 var (
 	swaymsgPath    = findBinary("swaymsg", "/run/current-system/sw/bin/swaymsg", "/usr/bin/swaymsg")
 	notifySendPath = findBinary("notify-send", "/run/current-system/sw/bin/notify-send", "/usr/bin/notify-send")
+	wtypePath      = findBinary("wtype", "/run/current-system/sw/bin/wtype", "/usr/bin/wtype", "/home/ljsm/.nix-profile/bin/wtype")
 )
 
 func findBinary(name string, candidates ...string) string {
@@ -51,6 +52,8 @@ func (e *Executor) Run(action string) error {
 		return e.swaymsg(command)
 	case "exec":
 		return e.exec(command)
+	case "key":
+		return e.sendKey(command)
 	case "mode":
 		// Handled by caller
 		return nil
@@ -66,6 +69,11 @@ func (e *Executor) swaymsg(cmd string) error {
 func (e *Executor) exec(cmd string) error {
 	// Use swaymsg exec to properly launch in sway context
 	return exec.Command(swaymsgPath, "exec", "--", cmd).Run()
+}
+
+func (e *Executor) sendKey(key string) error {
+	// wtype -k sends a key press+release
+	return exec.Command(wtypePath, "-k", key).Run()
 }
 
 func (e *Executor) Notify(title, body string) error {
