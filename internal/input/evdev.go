@@ -159,25 +159,22 @@ func (r *Reader) handleEvent(ev evdev.InputEvent) {
 		}
 
 		// Check for chord (Select + button)
-		if r.selectHeld && pressed {
+		if r.selectHeld {
 			chordBtn := chordButton(btn)
 			if chordBtn != "" {
-				r.chordUsed = true
-				r.events <- Event{Button: chordBtn, Pressed: true}
+				if pressed {
+					r.chordUsed = true
+					r.events <- Event{Button: chordBtn, Pressed: true}
+				} else if r.chordUsed {
+					// Only emit chord release if we emitted a chord press
+					r.events <- Event{Button: chordBtn, Pressed: false}
+				}
+				// Don't emit normal button when Select is held
 				return
 			}
 		}
 
-		// If Select is held but we're releasing, emit the chord release
-		if r.selectHeld && !pressed {
-			chordBtn := chordButton(btn)
-			if chordBtn != "" && r.chordUsed {
-				r.events <- Event{Button: chordBtn, Pressed: false}
-				return
-			}
-		}
-
-		// Normal button event
+		// Normal button event (only when Select is NOT held)
 		r.events <- Event{Button: btn, Pressed: pressed}
 
 	case evdev.EV_ABS:
