@@ -8,11 +8,11 @@ import (
 )
 
 type Manager struct {
-	mu         sync.RWMutex
-	current    string
-	modeFile   string
-	notify     bool
-	notifier   func(title, body string) error
+	mu           sync.RWMutex
+	current      string
+	modeFile     string
+	notify       bool
+	notifier     func(title, body string) error
 	onModeChange func(mode string)
 }
 
@@ -27,20 +27,22 @@ func NewManager(defaultMode, modeFile string, notify bool, notifier func(string,
 	return m
 }
 
-func (m *Manager) OnModeChange(fn func(mode string)) {
-	m.mu.Lock()
-	m.onModeChange = fn
-	m.mu.Unlock()
-	// Notify immediately with current mode
-	if fn != nil {
-		fn(m.current)
-	}
-}
-
 func (m *Manager) Current() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.current
+}
+
+func (m *Manager) OnModeChange(fn func(mode string)) {
+	m.mu.Lock()
+	m.onModeChange = fn
+	current := m.current
+	m.mu.Unlock()
+
+	// Notify immediately with current mode
+	if fn != nil {
+		fn(current)
+	}
 }
 
 func (m *Manager) Switch(name string) {
@@ -50,34 +52,59 @@ func (m *Manager) Switch(name string) {
 		return
 	}
 	m.current = name
+	notify := m.notify
+	notifier := m.notifier
 	onChange := m.onModeChange
+	modeFile := m.modeFile
 	m.mu.Unlock()
 
-	m.writeModeFile()
-
-	if m.notify && m.notifier != nil {
-		icon := modeIcon(name)
-		m.notifier(fmt.Sprintf("%s %s", icon, name), "")
+	// Write mode file (outside lock)
+	if modeFile != "" {
+		if err := m.writeModeFileSync(modeFile, name); err != nil {
+			fmt.Fprintf(os.Stderr, "write mode file: %v\n", err)
+		}
 	}
 
+	// Send notification
+	if notify && notifier != nil {
+		icon := modeIcon(name)
+		if err := notifier(fmt.Sprintf("%s %s", icon, name), ""); err != nil {
+			fmt.Fprintf(os.Stderr, "notification error: %v\n", err)
+		}
+	}
+
+	// Callback
 	if onChange != nil {
 		onChange(name)
 	}
 }
 
 func (m *Manager) writeModeFile() {
-	if m.modeFile == "" {
+	m.mu.RLock()
+	modeFile := m.modeFile
+	current := m.current
+	m.mu.RUnlock()
+
+	if modeFile == "" {
 		return
 	}
 
-	dir := filepath.Dir(m.modeFile)
-	os.MkdirAll(dir, 0755)
+	if err := m.writeModeFileSync(modeFile, current); err != nil {
+		fmt.Fprintf(os.Stderr, "write mode file: %v\n", err)
+	}
+}
 
-	m.mu.RLock()
-	data := []byte(m.current)
-	m.mu.RUnlock()
+func (m *Manager) writeModeFileSync(path, mode string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create dir: %w", err)
+	}
 
-	os.WriteFile(m.modeFile, data, 0644)
+	if err := os.WriteFile(path, []byte(mode), 0644); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+
+	return nil
 }
 
 func modeIcon(name string) string {
@@ -86,6 +113,8 @@ func modeIcon(name string) string {
 		return "🎮"
 	case "launcher":
 		return "🚀"
+	case "input":
+		return "⌨️"
 	default:
 		return "⚡"
 	}

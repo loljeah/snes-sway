@@ -2,6 +2,7 @@ package tray
 
 import (
 	_ "embed"
+	"sync"
 
 	"fyne.io/systray"
 )
@@ -16,6 +17,7 @@ var iconLauncher []byte
 var iconDisabled []byte
 
 type Tray struct {
+	mu          sync.RWMutex
 	modeItem    *systray.MenuItem
 	enableItem  *systray.MenuItem
 	quitCh      chan struct{}
@@ -24,6 +26,7 @@ type Tray struct {
 	currentMode string
 	enabled     bool
 	ready       bool
+	closed      bool
 }
 
 // NewWithSystray creates a Tray and immediately sets up the systray.
@@ -53,76 +56,103 @@ func (t *Tray) setup() {
 
 	mQuit := systray.AddMenuItem("Quit", "Stop snes-sway daemon")
 
+	t.mu.Lock()
 	t.ready = true
+	t.mu.Unlock()
 
-	go func() {
-		for {
-			select {
-			case <-t.enableItem.ClickedCh:
-				t.enabled = !t.enabled
-				if t.enabled {
-					t.enableItem.SetTitle("Disable")
-					t.updateIcon()
-					systray.SetTooltip("SNES Controller - " + t.currentMode + " Mode")
-				} else {
-					t.enableItem.SetTitle("Enable")
-					systray.SetIcon(iconDisabled)
-					systray.SetTooltip("SNES Controller - Disabled")
-				}
-				if t.onToggle != nil {
-					t.onToggle(t.enabled)
-				}
-			case <-mQuit.ClickedCh:
-				if t.onQuit != nil {
-					t.onQuit()
-				}
-				return
-			case <-t.quitCh:
-				return
-			}
-		}
-	}()
+	go t.eventLoop(mQuit)
 }
 
-func (t *Tray) updateIcon() {
-	switch t.currentMode {
+func (t *Tray) eventLoop(mQuit *systray.MenuItem) {
+	for {
+		select {
+		case <-t.enableItem.ClickedCh:
+			t.mu.Lock()
+			t.enabled = !t.enabled
+			enabled := t.enabled
+			mode := t.currentMode
+			onToggle := t.onToggle
+			t.mu.Unlock()
+
+			if enabled {
+				t.enableItem.SetTitle("Disable")
+				t.updateIconLocked(mode)
+				systray.SetTooltip("SNES Controller - " + mode + " Mode")
+			} else {
+				t.enableItem.SetTitle("Enable")
+				systray.SetIcon(iconDisabled)
+				systray.SetTooltip("SNES Controller - Disabled")
+			}
+
+			if onToggle != nil {
+				onToggle(enabled)
+			}
+
+		case <-mQuit.ClickedCh:
+			t.mu.Lock()
+			onQuit := t.onQuit
+			t.mu.Unlock()
+
+			if onQuit != nil {
+				onQuit()
+			}
+			return
+
+		case <-t.quitCh:
+			return
+		}
+	}
+}
+
+func (t *Tray) updateIconLocked(mode string) {
+	switch mode {
 	case "navigation":
 		systray.SetIcon(iconNavigation)
 	case "launcher":
 		systray.SetIcon(iconLauncher)
+	case "input":
+		systray.SetIcon(iconNavigation) // Use navigation icon for input mode
 	default:
 		systray.SetIcon(iconNavigation)
 	}
 }
 
 func (t *Tray) SetMode(mode string) {
+	t.mu.Lock()
 	if !t.ready {
+		t.mu.Unlock()
 		return
 	}
 
 	t.currentMode = mode
+	enabled := t.enabled
+	t.mu.Unlock()
 
 	if t.modeItem != nil {
 		t.modeItem.SetTitle("Mode: " + mode)
 	}
 
-	if !t.enabled {
+	if !enabled {
 		return
 	}
 
-	t.updateIcon()
+	t.updateIconLocked(mode)
 	systray.SetTooltip("SNES Controller - " + mode + " Mode")
 }
 
 func (t *Tray) IsEnabled() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 	return t.enabled
 }
 
 func (t *Tray) Quit() {
-	select {
-	case <-t.quitCh:
-		// Already closed
-	default:
-		close(t.quitCh)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.closed {
+		return
 	}
+	t.closed = true
+	close(t.quitCh)
 }

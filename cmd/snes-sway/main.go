@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
 	"fyne.io/systray"
@@ -41,24 +42,25 @@ func main() {
 }
 
 var (
+	mu           sync.RWMutex
 	trayInstance *tray.Tray
 	quitChan     = make(chan struct{})
+	quitOnce     sync.Once
 	enabled      = true
-	enabledChan  = make(chan bool, 1)
 )
 
 func onReady() {
 	trayInstance = tray.NewWithSystray(
 		func() {
-			close(quitChan)
+			quitOnce.Do(func() {
+				close(quitChan)
+			})
 			systray.Quit()
 		},
 		func(e bool) {
+			mu.Lock()
 			enabled = e
-			select {
-			case enabledChan <- e:
-			default:
-			}
+			mu.Unlock()
 			if e {
 				fmt.Fprintln(os.Stderr, "controller enabled")
 			} else {
@@ -76,7 +78,16 @@ func onReady() {
 }
 
 func onExit() {
-	// Cleanup
+	// Cleanup - ensure quitChan is closed
+	quitOnce.Do(func() {
+		close(quitChan)
+	})
+}
+
+func isEnabled() bool {
+	mu.RLock()
+	defer mu.RUnlock()
+	return enabled
 }
 
 func runDaemon(t *tray.Tray) error {
@@ -91,6 +102,11 @@ func runDaemon(t *tray.Tray) error {
 	defer cfgMgr.Close()
 
 	cfg := cfgMgr.Get()
+
+	// Validate sway setup
+	if err := sway.ValidateSetup(); err != nil {
+		return fmt.Errorf("validate setup: %w", err)
+	}
 
 	// Find or use configured device
 	devicePath := cfg.Device.Path
@@ -122,17 +138,19 @@ func runDaemon(t *tray.Tray) error {
 	)
 
 	if t != nil {
-		modeMgr.OnModeChange(func(mode string) {
-			t.SetMode(mode)
+		modeMgr.OnModeChange(func(m string) {
+			t.SetMode(m)
 		})
 		// Set initial mode
 		t.SetMode(cfg.DefaultMode)
 	}
 
 	// Watch config for hot reload
-	cfgMgr.Watch(func(newCfg *config.Config) {
+	if err := cfgMgr.Watch(func(newCfg *config.Config) {
 		fmt.Fprintln(os.Stderr, "config reloaded")
-	})
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: config watch failed: %v\n", err)
+	}
 
 	go reader.Run()
 
@@ -151,12 +169,12 @@ func runDaemon(t *tray.Tray) error {
 			fmt.Fprintln(os.Stderr, "quit from tray")
 			return nil
 
-		case <-enabledChan:
-			// Enabled state changed, just continue loop
-			continue
+		case <-reader.Disconnected():
+			return fmt.Errorf("input device disconnected")
 
 		case ev, ok := <-reader.Events():
 			if !ok {
+				// Channel closed, device disconnected
 				return fmt.Errorf("input device disconnected")
 			}
 
@@ -169,7 +187,7 @@ func runDaemon(t *tray.Tray) error {
 			}
 
 			// Skip if disabled
-			if !enabled {
+			if !isEnabled() {
 				continue
 			}
 
@@ -178,9 +196,9 @@ func runDaemon(t *tray.Tray) error {
 			}
 
 			currentMode := modeMgr.Current()
-			cfg := cfgMgr.Get()
+			currentCfg := cfgMgr.Get()
 
-			modeConfig, ok := cfg.Modes[currentMode]
+			modeConfig, ok := currentCfg.Modes[currentMode]
 			if !ok {
 				fmt.Fprintf(os.Stderr, "unknown mode: %s\n", currentMode)
 				continue

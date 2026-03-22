@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	evdev "github.com/holoplot/go-evdev"
 )
@@ -72,6 +74,7 @@ type Event struct {
 }
 
 type Reader struct {
+	mu           sync.Mutex
 	dev          *evdev.InputDevice
 	events       chan Event
 	stop         chan struct{}
@@ -79,7 +82,9 @@ type Reader struct {
 	lastY        int32
 	selectHeld   bool
 	startHeld    bool
-	chordUsed    bool // Track if modifier was used for a chord
+	chordUsed    bool
+	closed       bool
+	disconnected chan struct{}
 }
 
 func FindDevice(vendorID, productID uint16) (string, error) {
@@ -92,14 +97,16 @@ func FindDevice(vendorID, productID uint16) (string, error) {
 		}
 
 		id, err := dev.InputID()
-		dev.Close()
 		if err != nil {
+			dev.Close() // Close on error
 			continue
 		}
 
 		if id.Vendor == vendorID && id.Product == productID {
+			dev.Close() // Close after checking, will reopen in NewReader
 			return path, nil
 		}
+		dev.Close() // Always close
 	}
 
 	return "", fmt.Errorf("device %04x:%04x not found", vendorID, productID)
@@ -115,9 +122,10 @@ func NewReader(path string) (*Reader, error) {
 	fmt.Fprintf(os.Stderr, "opened device: %s (%s)\n", path, strings.TrimSpace(name))
 
 	return &Reader{
-		dev:    dev,
-		events: make(chan Event, 32),
-		stop:   make(chan struct{}),
+		dev:          dev,
+		events:       make(chan Event, 64), // Buffered to prevent blocking
+		stop:         make(chan struct{}),
+		disconnected: make(chan struct{}),
 	}, nil
 }
 
@@ -125,8 +133,15 @@ func (r *Reader) Events() <-chan Event {
 	return r.events
 }
 
+func (r *Reader) Disconnected() <-chan struct{} {
+	return r.disconnected
+}
+
 func (r *Reader) Run() {
-	defer close(r.events)
+	defer func() {
+		close(r.events)
+		close(r.disconnected)
+	}()
 
 	for {
 		select {
@@ -184,9 +199,9 @@ func (r *Reader) handleEvent(ev evdev.InputEvent) {
 			if chordBtn != "" {
 				if pressed {
 					r.chordUsed = true
-					r.events <- Event{Button: chordBtn, Pressed: true}
+					r.sendEvent(Event{Button: chordBtn, Pressed: true})
 				} else if r.chordUsed {
-					r.events <- Event{Button: chordBtn, Pressed: false}
+					r.sendEvent(Event{Button: chordBtn, Pressed: false})
 				}
 				return
 			}
@@ -198,16 +213,16 @@ func (r *Reader) handleEvent(ev evdev.InputEvent) {
 			if chordBtn != "" {
 				if pressed {
 					r.chordUsed = true
-					r.events <- Event{Button: chordBtn, Pressed: true}
+					r.sendEvent(Event{Button: chordBtn, Pressed: true})
 				} else if r.chordUsed {
-					r.events <- Event{Button: chordBtn, Pressed: false}
+					r.sendEvent(Event{Button: chordBtn, Pressed: false})
 				}
 				return
 			}
 		}
 
 		// Normal button event (only when no modifier is held)
-		r.events <- Event{Button: btn, Pressed: pressed}
+		r.sendEvent(Event{Button: btn, Pressed: pressed})
 
 	case evdev.EV_ABS:
 		switch ev.Code {
@@ -228,6 +243,16 @@ func (r *Reader) handleEvent(ev evdev.InputEvent) {
 				r.handleAxis(&r.lastY, ev.Value, ButtonUp, ButtonDown)
 			}
 		}
+	}
+}
+
+// sendEvent sends an event without blocking; drops if buffer full
+func (r *Reader) sendEvent(ev Event) {
+	select {
+	case r.events <- ev:
+	default:
+		// Buffer full, drop event to prevent blocking
+		fmt.Fprintf(os.Stderr, "warning: event buffer full, dropping %s\n", ev.Button)
 	}
 }
 
@@ -295,18 +320,18 @@ func (r *Reader) handleChordAxis(last *int32, value int32, neg, pos Button) {
 
 	// Released
 	if prev == -1 && value != -1 {
-		r.events <- Event{Button: neg, Pressed: false}
+		r.sendEvent(Event{Button: neg, Pressed: false})
 	}
 	if prev == 1 && value != 1 {
-		r.events <- Event{Button: pos, Pressed: false}
+		r.sendEvent(Event{Button: pos, Pressed: false})
 	}
 
 	// Pressed
 	if value == -1 && prev != -1 {
-		r.events <- Event{Button: neg, Pressed: true}
+		r.sendEvent(Event{Button: neg, Pressed: true})
 	}
 	if value == 1 && prev != 1 {
-		r.events <- Event{Button: pos, Pressed: true}
+		r.sendEvent(Event{Button: pos, Pressed: true})
 	}
 }
 
@@ -316,23 +341,35 @@ func (r *Reader) handleAxis(last *int32, value int32, neg, pos Button) {
 
 	// Released
 	if prev == -1 && value != -1 {
-		r.events <- Event{Button: neg, Pressed: false}
+		r.sendEvent(Event{Button: neg, Pressed: false})
 	}
 	if prev == 1 && value != 1 {
-		r.events <- Event{Button: pos, Pressed: false}
+		r.sendEvent(Event{Button: pos, Pressed: false})
 	}
 
 	// Pressed
 	if value == -1 && prev != -1 {
-		r.events <- Event{Button: neg, Pressed: true}
+		r.sendEvent(Event{Button: neg, Pressed: true})
 	}
 	if value == 1 && prev != 1 {
-		r.events <- Event{Button: pos, Pressed: true}
+		r.sendEvent(Event{Button: pos, Pressed: true})
 	}
 }
 
 func (r *Reader) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.closed {
+		return nil
+	}
+	r.closed = true
+
 	close(r.stop)
+
+	// Give the reader goroutine time to exit
+	time.Sleep(10 * time.Millisecond)
+
 	return r.dev.Close()
 }
 
