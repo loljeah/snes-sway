@@ -18,6 +18,7 @@ indicator:
 
 # Button mappings per mode
 # Available buttons: a, b, x, y, l, r, start, select, up, down, left, right
+# Chord buttons (hold Select + button): select+l, select+r, select+a, select+b, etc.
 # Actions:
 #   sway:<command>  - run swaymsg <command>
 #   exec:<command>  - run shell command
@@ -30,13 +31,17 @@ modes:
     left:   "sway:focus left"
     right:  "sway:focus right"
     a:      "sway:fullscreen toggle"
-    b:      "sway:kill"
+    b:      "sway:scratchpad show"
     x:      "sway:floating toggle"
     y:      "sway:layout toggle split"
     l:      "sway:workspace prev"
     r:      "sway:workspace next"
     start:  "exec:wofi --show drun"
     select: "mode:launcher"
+    # Chords: Select + button
+    select+b: "sway:kill"
+    select+l: "sway:focus output left"
+    select+r: "sway:focus output right"
 
   launcher:
     up:     "sway:focus up"
@@ -51,6 +56,10 @@ modes:
     r:      "sway:workspace next"
     start:  "exec:wofi --show drun"
     select: "mode:navigation"
+    # Chords
+    select+b: "sway:kill"
+    select+l: "sway:focus output left"
+    select+r: "sway:focus output right"
 
 # Default mode on startup
 default_mode: navigation

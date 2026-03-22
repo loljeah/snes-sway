@@ -39,6 +39,18 @@ const (
 	ButtonDown   Button = "down"
 	ButtonLeft   Button = "left"
 	ButtonRight  Button = "right"
+
+	// Chord buttons (Select + button)
+	ButtonSelectL     Button = "select+l"
+	ButtonSelectR     Button = "select+r"
+	ButtonSelectUp    Button = "select+up"
+	ButtonSelectDown  Button = "select+down"
+	ButtonSelectLeft  Button = "select+left"
+	ButtonSelectRight Button = "select+right"
+	ButtonSelectA     Button = "select+a"
+	ButtonSelectB     Button = "select+b"
+	ButtonSelectX     Button = "select+x"
+	ButtonSelectY     Button = "select+y"
 )
 
 type Event struct {
@@ -47,11 +59,13 @@ type Event struct {
 }
 
 type Reader struct {
-	dev     *evdev.InputDevice
-	events  chan Event
-	stop    chan struct{}
-	lastX   int32
-	lastY   int32
+	dev          *evdev.InputDevice
+	events       chan Event
+	stop         chan struct{}
+	lastX        int32
+	lastY        int32
+	selectHeld   bool
+	chordUsed    bool // Track if Select was used as modifier
 }
 
 func FindDevice(vendorID, productID uint16) (string, error) {
@@ -121,17 +135,118 @@ func (r *Reader) handleEvent(ev evdev.InputEvent) {
 	switch ev.Type {
 	case evdev.EV_KEY:
 		btn := codeToButton(ev.Code)
-		if btn != "" {
-			r.events <- Event{Button: btn, Pressed: ev.Value == 1}
+		if btn == "" {
+			return
 		}
+
+		pressed := ev.Value == 1
+
+		// Track Select state for chords
+		if btn == ButtonSelect {
+			if pressed {
+				r.selectHeld = true
+				r.chordUsed = false
+			} else {
+				r.selectHeld = false
+				// Only emit Select release if it wasn't used as a chord modifier
+				if !r.chordUsed {
+					r.events <- Event{Button: btn, Pressed: false}
+				}
+				return
+			}
+			// Don't emit Select press immediately - wait to see if it's a chord
+			return
+		}
+
+		// Check for chord (Select + button)
+		if r.selectHeld && pressed {
+			chordBtn := chordButton(btn)
+			if chordBtn != "" {
+				r.chordUsed = true
+				r.events <- Event{Button: chordBtn, Pressed: true}
+				return
+			}
+		}
+
+		// If Select is held but we're releasing, emit the chord release
+		if r.selectHeld && !pressed {
+			chordBtn := chordButton(btn)
+			if chordBtn != "" && r.chordUsed {
+				r.events <- Event{Button: chordBtn, Pressed: false}
+				return
+			}
+		}
+
+		// Normal button event
+		r.events <- Event{Button: btn, Pressed: pressed}
 
 	case evdev.EV_ABS:
 		switch ev.Code {
 		case evdev.ABS_X:
-			r.handleAxis(&r.lastX, ev.Value, ButtonLeft, ButtonRight)
+			if r.selectHeld {
+				r.handleChordAxis(&r.lastX, ev.Value, ButtonSelectLeft, ButtonSelectRight)
+			} else {
+				r.handleAxis(&r.lastX, ev.Value, ButtonLeft, ButtonRight)
+			}
 		case evdev.ABS_Y:
-			r.handleAxis(&r.lastY, ev.Value, ButtonUp, ButtonDown)
+			if r.selectHeld {
+				r.handleChordAxis(&r.lastY, ev.Value, ButtonSelectUp, ButtonSelectDown)
+			} else {
+				r.handleAxis(&r.lastY, ev.Value, ButtonUp, ButtonDown)
+			}
 		}
+	}
+}
+
+func chordButton(btn Button) Button {
+	switch btn {
+	case ButtonL:
+		return ButtonSelectL
+	case ButtonR:
+		return ButtonSelectR
+	case ButtonA:
+		return ButtonSelectA
+	case ButtonB:
+		return ButtonSelectB
+	case ButtonX:
+		return ButtonSelectX
+	case ButtonY:
+		return ButtonSelectY
+	case ButtonUp:
+		return ButtonSelectUp
+	case ButtonDown:
+		return ButtonSelectDown
+	case ButtonLeft:
+		return ButtonSelectLeft
+	case ButtonRight:
+		return ButtonSelectRight
+	default:
+		return ""
+	}
+}
+
+func (r *Reader) handleChordAxis(last *int32, value int32, neg, pos Button) {
+	prev := *last
+	*last = value
+
+	if value != prev {
+		r.chordUsed = true
+	}
+
+	// Released
+	if prev == -1 && value != -1 {
+		r.events <- Event{Button: neg, Pressed: false}
+	}
+	if prev == 1 && value != 1 {
+		r.events <- Event{Button: pos, Pressed: false}
+	}
+
+	// Pressed
+	if value == -1 && prev != -1 {
+		r.events <- Event{Button: neg, Pressed: true}
+	}
+	if value == 1 && prev != 1 {
+		r.events <- Event{Button: pos, Pressed: true}
 	}
 }
 
