@@ -14,6 +14,7 @@ import (
 	"github.com/ljsm/snes-sway/internal/config"
 	"github.com/ljsm/snes-sway/internal/input"
 	"github.com/ljsm/snes-sway/internal/mode"
+	"github.com/ljsm/snes-sway/internal/repeat"
 	"github.com/ljsm/snes-sway/internal/sway"
 	"github.com/ljsm/snes-sway/internal/tray"
 )
@@ -260,6 +261,16 @@ func runInputLoop(t *tray.Tray, cfgMgr *config.Manager, modeMgr *mode.Manager, e
 	}
 	defer reader.Close()
 
+	// Create repeater for held button actions (mouse movement)
+	repeater := repeat.New(
+		repeat.DefaultConfig(),
+		func(action string) error {
+			return executor.Run(action)
+		},
+		repeat.ShouldRepeat,
+	)
+	defer repeater.Stop()
+
 	go reader.Run()
 
 	for {
@@ -293,16 +304,15 @@ func runInputLoop(t *tray.Tray, cfgMgr *config.Manager, modeMgr *mode.Manager, e
 
 			// Skip if disabled
 			if !isEnabled() {
+				if !ev.Pressed {
+					repeater.Release(string(ev.Button))
+				}
 				continue
 			}
 
 			// Reset mode timeout on any button press
 			if ev.Pressed {
 				modeMgr.ResetTimer()
-			}
-
-			if !ev.Pressed {
-				continue
 			}
 
 			currentMode := modeMgr.Current()
@@ -315,6 +325,13 @@ func runInputLoop(t *tray.Tray, cfgMgr *config.Manager, modeMgr *mode.Manager, e
 			}
 
 			action, ok := modeConfig[string(ev.Button)]
+
+			// Handle button release - stop repeating
+			if !ev.Pressed {
+				repeater.Release(string(ev.Button))
+				continue
+			}
+
 			if !ok {
 				continue
 			}
@@ -326,6 +343,13 @@ func runInputLoop(t *tray.Tray, cfgMgr *config.Manager, modeMgr *mode.Manager, e
 				continue
 			}
 
+			// Check if this is a repeatable action (mouse movement)
+			if repeat.ShouldRepeat(action) {
+				repeater.Press(string(ev.Button), action)
+				continue
+			}
+
+			// Normal one-shot action
 			if err := executor.Run(action); err != nil {
 				fmt.Fprintf(os.Stderr, "action error: %v\n", err)
 			}

@@ -78,11 +78,11 @@ modes:
     select+r: "sway:focus output right"
 
   mouse:
-    # D-pad moves cursor (speed: 20 pixels per press)
-    up:     "mouse:move_up:20"
-    down:   "mouse:move_down:20"
-    left:   "mouse:move_left:20"
-    right:  "mouse:move_right:20"
+    # D-pad moves cursor (hold to repeat with acceleration)
+    up:     "mouse:move_up:16"
+    down:   "mouse:move_down:16"
+    left:   "mouse:move_left:16"
+    right:  "mouse:move_right:16"
     # A: left click
     a:      "mouse:click_left"
     # B: exit mouse mode
@@ -91,15 +91,15 @@ modes:
     x:      "mouse:click_right"
     # Y: middle click
     y:      "mouse:click_middle"
-    # Shoulders: adjust speed (use different speeds)
+    # Shoulders: fast horizontal movement
     l:      "mouse:move_left:50"
     r:      "mouse:move_right:50"
-    # Select chords
+    # Select chords: slow/precise movement
     select+b: "sway:kill"
-    select+up:    "mouse:move_up:5"
-    select+down:  "mouse:move_down:5"
-    select+left:  "mouse:move_left:5"
-    select+right: "mouse:move_right:5"
+    select+up:    "mouse:move_up:4"
+    select+down:  "mouse:move_down:4"
+    select+left:  "mouse:move_left:4"
+    select+right: "mouse:move_right:4"
 
   launcher:
     up:     "sway:focus up"
