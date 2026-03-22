@@ -51,6 +51,18 @@ const (
 	ButtonSelectB     Button = "select+b"
 	ButtonSelectX     Button = "select+x"
 	ButtonSelectY     Button = "select+y"
+
+	// Chord buttons (Start + button)
+	ButtonStartL     Button = "start+l"
+	ButtonStartR     Button = "start+r"
+	ButtonStartUp    Button = "start+up"
+	ButtonStartDown  Button = "start+down"
+	ButtonStartLeft  Button = "start+left"
+	ButtonStartRight Button = "start+right"
+	ButtonStartA     Button = "start+a"
+	ButtonStartB     Button = "start+b"
+	ButtonStartX     Button = "start+x"
+	ButtonStartY     Button = "start+y"
 )
 
 type Event struct {
@@ -65,7 +77,8 @@ type Reader struct {
 	lastX        int32
 	lastY        int32
 	selectHeld   bool
-	chordUsed    bool // Track if Select was used as modifier
+	startHeld    bool
+	chordUsed    bool // Track if modifier was used for a chord
 }
 
 func FindDevice(vendorID, productID uint16) (string, error) {
@@ -141,40 +154,58 @@ func (r *Reader) handleEvent(ev evdev.InputEvent) {
 
 		pressed := ev.Value == 1
 
-		// Track Select state for chords
+		// Track modifier states (Select and Start)
 		if btn == ButtonSelect {
 			if pressed {
 				r.selectHeld = true
 				r.chordUsed = false
 			} else {
 				r.selectHeld = false
-				// Only emit Select release if it wasn't used as a chord modifier
-				if !r.chordUsed {
-					r.events <- Event{Button: btn, Pressed: false}
-				}
-				return
 			}
-			// Don't emit Select press immediately - wait to see if it's a chord
+			// Select never emits events - only used as modifier
+			return
+		}
+
+		if btn == ButtonStart {
+			if pressed {
+				r.startHeld = true
+				r.chordUsed = false
+			} else {
+				r.startHeld = false
+			}
+			// Start never emits events - only used as modifier
 			return
 		}
 
 		// Check for chord (Select + button)
 		if r.selectHeld {
-			chordBtn := chordButton(btn)
+			chordBtn := selectChordButton(btn)
 			if chordBtn != "" {
 				if pressed {
 					r.chordUsed = true
 					r.events <- Event{Button: chordBtn, Pressed: true}
 				} else if r.chordUsed {
-					// Only emit chord release if we emitted a chord press
 					r.events <- Event{Button: chordBtn, Pressed: false}
 				}
-				// Don't emit normal button when Select is held
 				return
 			}
 		}
 
-		// Normal button event (only when Select is NOT held)
+		// Check for chord (Start + button)
+		if r.startHeld {
+			chordBtn := startChordButton(btn)
+			if chordBtn != "" {
+				if pressed {
+					r.chordUsed = true
+					r.events <- Event{Button: chordBtn, Pressed: true}
+				} else if r.chordUsed {
+					r.events <- Event{Button: chordBtn, Pressed: false}
+				}
+				return
+			}
+		}
+
+		// Normal button event (only when no modifier is held)
 		r.events <- Event{Button: btn, Pressed: pressed}
 
 	case evdev.EV_ABS:
@@ -182,12 +213,16 @@ func (r *Reader) handleEvent(ev evdev.InputEvent) {
 		case evdev.ABS_X:
 			if r.selectHeld {
 				r.handleChordAxis(&r.lastX, ev.Value, ButtonSelectLeft, ButtonSelectRight)
+			} else if r.startHeld {
+				r.handleChordAxis(&r.lastX, ev.Value, ButtonStartLeft, ButtonStartRight)
 			} else {
 				r.handleAxis(&r.lastX, ev.Value, ButtonLeft, ButtonRight)
 			}
 		case evdev.ABS_Y:
 			if r.selectHeld {
 				r.handleChordAxis(&r.lastY, ev.Value, ButtonSelectUp, ButtonSelectDown)
+			} else if r.startHeld {
+				r.handleChordAxis(&r.lastY, ev.Value, ButtonStartUp, ButtonStartDown)
 			} else {
 				r.handleAxis(&r.lastY, ev.Value, ButtonUp, ButtonDown)
 			}
@@ -195,7 +230,7 @@ func (r *Reader) handleEvent(ev evdev.InputEvent) {
 	}
 }
 
-func chordButton(btn Button) Button {
+func selectChordButton(btn Button) Button {
 	switch btn {
 	case ButtonL:
 		return ButtonSelectL
@@ -217,6 +252,33 @@ func chordButton(btn Button) Button {
 		return ButtonSelectLeft
 	case ButtonRight:
 		return ButtonSelectRight
+	default:
+		return ""
+	}
+}
+
+func startChordButton(btn Button) Button {
+	switch btn {
+	case ButtonL:
+		return ButtonStartL
+	case ButtonR:
+		return ButtonStartR
+	case ButtonA:
+		return ButtonStartA
+	case ButtonB:
+		return ButtonStartB
+	case ButtonX:
+		return ButtonStartX
+	case ButtonY:
+		return ButtonStartY
+	case ButtonUp:
+		return ButtonStartUp
+	case ButtonDown:
+		return ButtonStartDown
+	case ButtonLeft:
+		return ButtonStartLeft
+	case ButtonRight:
+		return ButtonStartRight
 	default:
 		return ""
 	}
