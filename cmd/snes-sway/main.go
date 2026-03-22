@@ -43,13 +43,29 @@ func main() {
 var (
 	trayInstance *tray.Tray
 	quitChan     = make(chan struct{})
+	enabled      = true
+	enabledChan  = make(chan bool, 1)
 )
 
 func onReady() {
-	trayInstance = tray.NewWithSystray(func() {
-		close(quitChan)
-		systray.Quit()
-	})
+	trayInstance = tray.NewWithSystray(
+		func() {
+			close(quitChan)
+			systray.Quit()
+		},
+		func(e bool) {
+			enabled = e
+			select {
+			case enabledChan <- e:
+			default:
+			}
+			if e {
+				fmt.Fprintln(os.Stderr, "controller enabled")
+			} else {
+				fmt.Fprintln(os.Stderr, "controller disabled")
+			}
+		},
+	)
 
 	go func() {
 		if err := runDaemon(trayInstance); err != nil {
@@ -135,6 +151,10 @@ func runDaemon(t *tray.Tray) error {
 			fmt.Fprintln(os.Stderr, "quit from tray")
 			return nil
 
+		case <-enabledChan:
+			// Enabled state changed, just continue loop
+			continue
+
 		case ev, ok := <-reader.Events():
 			if !ok {
 				return fmt.Errorf("input device disconnected")
@@ -146,6 +166,11 @@ func runDaemon(t *tray.Tray) error {
 					state = "pressed"
 				}
 				fmt.Fprintf(os.Stderr, "[debug] %s %s\n", ev.Button, state)
+			}
+
+			// Skip if disabled
+			if !enabled {
+				continue
 			}
 
 			if !ev.Pressed {
