@@ -17,24 +17,23 @@ type Tray struct {
 	quitCh      chan struct{}
 	onQuit      func()
 	currentMode string
-	ready       chan struct{}
+	ready       bool
 }
 
-func New(onQuit func()) *Tray {
-	return &Tray{
+// NewWithSystray creates a Tray and immediately sets up the systray.
+// Call this from onReady callback when systray.Run is called from main.
+func NewWithSystray(onQuit func()) *Tray {
+	t := &Tray{
 		quitCh: make(chan struct{}),
 		onQuit: onQuit,
-		ready:  make(chan struct{}),
 	}
+	t.setup()
+	return t
 }
 
-func (t *Tray) Run() {
-	systray.Run(t.onReady, t.onExit)
-}
-
-func (t *Tray) onReady() {
+func (t *Tray) setup() {
 	systray.SetIcon(iconNavigation)
-	systray.SetTitle("SNES-Sway")
+	systray.SetTitle("SNES")
 	systray.SetTooltip("SNES Controller - Navigation Mode")
 
 	t.modeItem = systray.AddMenuItem("Mode: navigation", "Current controller mode")
@@ -44,7 +43,7 @@ func (t *Tray) onReady() {
 
 	mQuit := systray.AddMenuItem("Quit", "Stop snes-sway daemon")
 
-	close(t.ready)
+	t.ready = true
 
 	go func() {
 		for {
@@ -53,23 +52,18 @@ func (t *Tray) onReady() {
 				if t.onQuit != nil {
 					t.onQuit()
 				}
-				systray.Quit()
 				return
 			case <-t.quitCh:
-				systray.Quit()
 				return
 			}
 		}
 	}()
 }
 
-func (t *Tray) onExit() {
-	// Cleanup if needed
-}
-
 func (t *Tray) SetMode(mode string) {
-	// Wait for tray to be ready
-	<-t.ready
+	if !t.ready {
+		return
+	}
 
 	t.currentMode = mode
 

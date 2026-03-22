@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 
+	"fyne.io/systray"
 	"github.com/ljsm/snes-sway/internal/config"
 	"github.com/ljsm/snes-sway/internal/input"
 	"github.com/ljsm/snes-sway/internal/mode"
@@ -16,23 +17,53 @@ import (
 )
 
 var (
-	debug   bool
-	noTray  bool
+	debug      bool
+	noTray     bool
+	configPath string
 )
 
 func main() {
-	configPath := flag.String("config", config.DefaultConfigPath(), "config file path")
+	flag.StringVar(&configPath, "config", config.DefaultConfigPath(), "config file path")
 	flag.BoolVar(&debug, "debug", false, "print button events")
 	flag.BoolVar(&noTray, "no-tray", false, "disable system tray icon")
 	flag.Parse()
 
-	if err := run(*configPath); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
+	if noTray {
+		// Run without systray
+		if err := runDaemon(nil); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		// systray.Run must be called from main thread
+		systray.Run(onReady, onExit)
 	}
 }
 
-func run(configPath string) error {
+var (
+	trayInstance *tray.Tray
+	quitChan     = make(chan struct{})
+)
+
+func onReady() {
+	trayInstance = tray.NewWithSystray(func() {
+		close(quitChan)
+		systray.Quit()
+	})
+
+	go func() {
+		if err := runDaemon(trayInstance); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			systray.Quit()
+		}
+	}()
+}
+
+func onExit() {
+	// Cleanup
+}
+
+func runDaemon(t *tray.Tray) error {
 	if err := config.EnsureConfigDir(); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
@@ -66,7 +97,6 @@ func run(configPath string) error {
 	// Handle shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-	quitChan := make(chan struct{})
 
 	modeMgr := mode.NewManager(
 		cfg.DefaultMode,
@@ -75,16 +105,12 @@ func run(configPath string) error {
 		executor.Notify,
 	)
 
-	// System tray
-	var systray *tray.Tray
-	if !noTray {
-		systray = tray.New(func() {
-			close(quitChan)
-		})
+	if t != nil {
 		modeMgr.OnModeChange(func(mode string) {
-			systray.SetMode(mode)
+			t.SetMode(mode)
 		})
-		go systray.Run()
+		// Set initial mode
+		t.SetMode(cfg.DefaultMode)
 	}
 
 	// Watch config for hot reload
@@ -100,7 +126,7 @@ func run(configPath string) error {
 		select {
 		case <-sigChan:
 			fmt.Fprintln(os.Stderr, "shutting down")
-			if systray != nil {
+			if t != nil {
 				systray.Quit()
 			}
 			return nil
