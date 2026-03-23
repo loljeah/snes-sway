@@ -16,6 +16,9 @@ var iconLauncher []byte
 //go:embed icons/disabled.png
 var iconDisabled []byte
 
+//go:embed icons/mouse.png
+var iconMouse []byte
+
 type Tray struct {
 	mu          sync.RWMutex
 	modeItem    *systray.MenuItem
@@ -110,8 +113,10 @@ func (t *Tray) updateIconLocked(mode string) {
 		systray.SetIcon(iconNavigation)
 	case "launcher":
 		systray.SetIcon(iconLauncher)
+	case "mouse":
+		systray.SetIcon(iconMouse)
 	case "input":
-		systray.SetIcon(iconNavigation) // Use navigation icon for input mode
+		systray.SetIcon(iconNavigation)
 	default:
 		systray.SetIcon(iconNavigation)
 	}
