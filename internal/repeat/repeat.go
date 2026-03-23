@@ -1,6 +1,8 @@
 package repeat
 
 import (
+	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -76,7 +78,9 @@ func (r *Repeater) Press(button, action string) {
 	}
 
 	// Execute immediately
-	r.executor(action)
+	if err := r.executor(action); err != nil {
+		fmt.Fprintf(os.Stderr, "repeat executor error: %v\n", err)
+	}
 
 	// Start hold state
 	hs := &holdState{
@@ -147,7 +151,11 @@ func (r *Repeater) repeatLoop(button string, hs *holdState) {
 			return
 		case <-time.After(hs.interval):
 			r.mu.Lock()
-			// Check if still held
+			// Check if stopped or no longer held
+			if r.stopped {
+				r.mu.Unlock()
+				return
+			}
 			currentHs, ok := r.held[button]
 			if !ok || currentHs != hs {
 				r.mu.Unlock()
@@ -157,7 +165,9 @@ func (r *Repeater) repeatLoop(button string, hs *holdState) {
 			r.mu.Unlock()
 
 			// Execute action
-			r.executor(action)
+			if err := r.executor(action); err != nil {
+				fmt.Fprintf(os.Stderr, "repeat executor error: %v\n", err)
+			}
 
 			// Accelerate
 			r.mu.Lock()

@@ -339,7 +339,35 @@ func runInputLoop(t *tray.Tray, cfgMgr *config.Manager, modeMgr *mode.Manager, e
 			// Handle mode switch
 			if strings.HasPrefix(action, "mode:") {
 				newMode := strings.TrimPrefix(action, "mode:")
+
+				// Special handling for drag mode - hold left button on enter
+				if newMode == "drag" {
+					fmt.Fprintf(os.Stderr, "entering drag mode, holding left button\n")
+					if err := executor.Run("mouse:hold_left"); err != nil {
+						fmt.Fprintf(os.Stderr, "drag start error: %v\n", err)
+					} else {
+						fmt.Fprintf(os.Stderr, "drag mode: left button held\n")
+					}
+				}
+
+				// If leaving drag mode, release left button
+				if currentMode == "drag" && newMode != "drag" {
+					fmt.Fprintf(os.Stderr, "leaving drag mode, releasing left button\n")
+					if err := executor.Run("mouse:release_left"); err != nil {
+						fmt.Fprintf(os.Stderr, "drag end error: %v\n", err)
+					}
+				}
+
 				modeMgr.Switch(newMode)
+				continue
+			}
+
+			// Handle release_left action - also switch back to mouse mode
+			if action == "mouse:release_left" && currentMode == "drag" {
+				if err := executor.Run(action); err != nil {
+					fmt.Fprintf(os.Stderr, "action error: %v\n", err)
+				}
+				modeMgr.Switch("mouse")
 				continue
 			}
 

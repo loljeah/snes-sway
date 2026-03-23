@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ljsm/snes-sway/internal/config"
+	"github.com/ljsm/snes-sway/internal/util"
 )
 
 func runConfigGenerator() error {
@@ -24,14 +25,24 @@ func runConfigGenerator() error {
 	productID := prompt(reader, "Product ID (hex, default 0x8036 for Leonardo):", "0x8036")
 
 	// Parse hex values
-	vid, _ := strconv.ParseUint(strings.TrimPrefix(vendorID, "0x"), 16, 16)
-	pid, _ := strconv.ParseUint(strings.TrimPrefix(productID, "0x"), 16, 16)
+	vid, err := strconv.ParseUint(strings.TrimPrefix(vendorID, "0x"), 16, 16)
+	if err != nil {
+		return fmt.Errorf("invalid vendor ID %q: %w", vendorID, err)
+	}
+	pid, err := strconv.ParseUint(strings.TrimPrefix(productID, "0x"), 16, 16)
+	if err != nil {
+		return fmt.Errorf("invalid product ID %q: %w", productID, err)
+	}
 
 	// Mode timeout
 	fmt.Println()
 	fmt.Println("Mode timeout:")
 	timeoutStr := prompt(reader, "Timeout in seconds (0 to disable, default 30):", "30")
-	timeout, _ := strconv.Atoi(timeoutStr)
+	timeout, err := strconv.Atoi(timeoutStr)
+	if err != nil {
+		fmt.Printf("Invalid timeout %q, using default 30\n", timeoutStr)
+		timeout = 30
+	}
 
 	// Notifications
 	fmt.Println()
@@ -82,8 +93,9 @@ func runConfigGenerator() error {
 	if strings.ToLower(addMouseStr) == "y" || strings.ToLower(addMouseStr) == "yes" {
 		fmt.Println("--- Mouse Mode (cursor control) ---")
 		speedStr := prompt(reader, "Mouse speed in pixels (default 20):", "20")
-		speed, _ := strconv.Atoi(speedStr)
-		if speed <= 0 {
+		speed, err := strconv.Atoi(speedStr)
+		if err != nil || speed <= 0 {
+			fmt.Printf("Invalid speed %q, using default 20\n", speedStr)
 			speed = 20
 		}
 		modes["mouse"] = promptMode(reader, "mouse", map[string]string{
@@ -143,9 +155,9 @@ func runConfigGenerator() error {
 	// Output path
 	fmt.Println()
 	outputPath := prompt(reader, "Output path:", config.DefaultConfigPath())
-	expanded, err := expandPath(outputPath)
+	expanded, err := util.ValidatePathUnderHome(outputPath)
 	if err != nil {
-		return fmt.Errorf("expand path: %w", err)
+		return fmt.Errorf("invalid path: %w", err)
 	}
 
 	// Ensure directory exists
@@ -156,8 +168,8 @@ func runConfigGenerator() error {
 	// Generate YAML
 	content := generateYAML(cfg)
 
-	// Write file
-	if err := os.WriteFile(expanded, []byte(content), 0644); err != nil {
+	// Write file with restricted permissions (owner rw, group r)
+	if err := os.WriteFile(expanded, []byte(content), 0640); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 
@@ -241,16 +253,3 @@ func generateYAML(cfg config.Config) string {
 	return sb.String()
 }
 
-func expandPath(path string) (string, error) {
-	if len(path) == 0 {
-		return path, nil
-	}
-	if path[0] == '~' {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("get home dir: %w", err)
-		}
-		return filepath.Join(home, path[1:]), nil
-	}
-	return path, nil
-}

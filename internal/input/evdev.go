@@ -85,10 +85,14 @@ type Reader struct {
 	chordUsed    bool
 	closed       bool
 	disconnected chan struct{}
+	wg           sync.WaitGroup
 }
 
 func FindDevice(vendorID, productID uint16) (string, error) {
-	matches, _ := filepath.Glob("/dev/input/event*")
+	matches, err := filepath.Glob("/dev/input/event*")
+	if err != nil {
+		return "", fmt.Errorf("glob input devices: %w", err)
+	}
 
 	for _, path := range matches {
 		dev, err := evdev.Open(path)
@@ -138,7 +142,9 @@ func (r *Reader) Disconnected() <-chan struct{} {
 }
 
 func (r *Reader) Run() {
+	r.wg.Add(1)
 	defer func() {
+		r.wg.Done()
 		close(r.events)
 		close(r.disconnected)
 	}()
@@ -161,6 +167,9 @@ func (r *Reader) Run() {
 }
 
 func (r *Reader) handleEvent(ev evdev.InputEvent) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	switch ev.Type {
 	case evdev.EV_KEY:
 		btn := codeToButton(ev.Code)
@@ -199,9 +208,9 @@ func (r *Reader) handleEvent(ev evdev.InputEvent) {
 			if chordBtn != "" {
 				if pressed {
 					r.chordUsed = true
-					r.sendEvent(Event{Button: chordBtn, Pressed: true})
+					r.sendEventLocked(Event{Button: chordBtn, Pressed: true})
 				} else if r.chordUsed {
-					r.sendEvent(Event{Button: chordBtn, Pressed: false})
+					r.sendEventLocked(Event{Button: chordBtn, Pressed: false})
 				}
 				return
 			}
@@ -213,41 +222,42 @@ func (r *Reader) handleEvent(ev evdev.InputEvent) {
 			if chordBtn != "" {
 				if pressed {
 					r.chordUsed = true
-					r.sendEvent(Event{Button: chordBtn, Pressed: true})
+					r.sendEventLocked(Event{Button: chordBtn, Pressed: true})
 				} else if r.chordUsed {
-					r.sendEvent(Event{Button: chordBtn, Pressed: false})
+					r.sendEventLocked(Event{Button: chordBtn, Pressed: false})
 				}
 				return
 			}
 		}
 
 		// Normal button event (only when no modifier is held)
-		r.sendEvent(Event{Button: btn, Pressed: pressed})
+		r.sendEventLocked(Event{Button: btn, Pressed: pressed})
 
 	case evdev.EV_ABS:
 		switch ev.Code {
 		case evdev.ABS_X:
 			if r.selectHeld {
-				r.handleChordAxis(&r.lastX, ev.Value, ButtonSelectLeft, ButtonSelectRight)
+				r.handleChordAxisLocked(&r.lastX, ev.Value, ButtonSelectLeft, ButtonSelectRight)
 			} else if r.startHeld {
-				r.handleChordAxis(&r.lastX, ev.Value, ButtonStartLeft, ButtonStartRight)
+				r.handleChordAxisLocked(&r.lastX, ev.Value, ButtonStartLeft, ButtonStartRight)
 			} else {
-				r.handleAxis(&r.lastX, ev.Value, ButtonLeft, ButtonRight)
+				r.handleAxisLocked(&r.lastX, ev.Value, ButtonLeft, ButtonRight)
 			}
 		case evdev.ABS_Y:
 			if r.selectHeld {
-				r.handleChordAxis(&r.lastY, ev.Value, ButtonSelectUp, ButtonSelectDown)
+				r.handleChordAxisLocked(&r.lastY, ev.Value, ButtonSelectUp, ButtonSelectDown)
 			} else if r.startHeld {
-				r.handleChordAxis(&r.lastY, ev.Value, ButtonStartUp, ButtonStartDown)
+				r.handleChordAxisLocked(&r.lastY, ev.Value, ButtonStartUp, ButtonStartDown)
 			} else {
-				r.handleAxis(&r.lastY, ev.Value, ButtonUp, ButtonDown)
+				r.handleAxisLocked(&r.lastY, ev.Value, ButtonUp, ButtonDown)
 			}
 		}
 	}
 }
 
-// sendEvent sends an event without blocking; drops if buffer full
-func (r *Reader) sendEvent(ev Event) {
+// sendEventLocked sends an event without blocking; drops if buffer full
+// Must be called with r.mu held
+func (r *Reader) sendEventLocked(ev Event) {
 	select {
 	case r.events <- ev:
 	default:
@@ -310,7 +320,9 @@ func startChordButton(btn Button) Button {
 	}
 }
 
-func (r *Reader) handleChordAxis(last *int32, value int32, neg, pos Button) {
+// handleChordAxisLocked handles axis events with chord modifier
+// Must be called with r.mu held
+func (r *Reader) handleChordAxisLocked(last *int32, value int32, neg, pos Button) {
 	prev := *last
 	*last = value
 
@@ -320,55 +332,66 @@ func (r *Reader) handleChordAxis(last *int32, value int32, neg, pos Button) {
 
 	// Released
 	if prev == -1 && value != -1 {
-		r.sendEvent(Event{Button: neg, Pressed: false})
+		r.sendEventLocked(Event{Button: neg, Pressed: false})
 	}
 	if prev == 1 && value != 1 {
-		r.sendEvent(Event{Button: pos, Pressed: false})
+		r.sendEventLocked(Event{Button: pos, Pressed: false})
 	}
 
 	// Pressed
 	if value == -1 && prev != -1 {
-		r.sendEvent(Event{Button: neg, Pressed: true})
+		r.sendEventLocked(Event{Button: neg, Pressed: true})
 	}
 	if value == 1 && prev != 1 {
-		r.sendEvent(Event{Button: pos, Pressed: true})
+		r.sendEventLocked(Event{Button: pos, Pressed: true})
 	}
 }
 
-func (r *Reader) handleAxis(last *int32, value int32, neg, pos Button) {
+// handleAxisLocked handles axis events without modifier
+// Must be called with r.mu held
+func (r *Reader) handleAxisLocked(last *int32, value int32, neg, pos Button) {
 	prev := *last
 	*last = value
 
 	// Released
 	if prev == -1 && value != -1 {
-		r.sendEvent(Event{Button: neg, Pressed: false})
+		r.sendEventLocked(Event{Button: neg, Pressed: false})
 	}
 	if prev == 1 && value != 1 {
-		r.sendEvent(Event{Button: pos, Pressed: false})
+		r.sendEventLocked(Event{Button: pos, Pressed: false})
 	}
 
 	// Pressed
 	if value == -1 && prev != -1 {
-		r.sendEvent(Event{Button: neg, Pressed: true})
+		r.sendEventLocked(Event{Button: neg, Pressed: true})
 	}
 	if value == 1 && prev != 1 {
-		r.sendEvent(Event{Button: pos, Pressed: true})
+		r.sendEventLocked(Event{Button: pos, Pressed: true})
 	}
 }
 
 func (r *Reader) Close() error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if r.closed {
+		r.mu.Unlock()
 		return nil
 	}
 	r.closed = true
-
 	close(r.stop)
+	r.mu.Unlock()
 
-	// Give the reader goroutine time to exit
-	time.Sleep(10 * time.Millisecond)
+	// Wait for reader goroutine to exit (with timeout)
+	done := make(chan struct{})
+	go func() {
+		r.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+		fmt.Fprintf(os.Stderr, "warning: reader goroutine did not exit in time\n")
+	}
 
 	return r.dev.Close()
 }

@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/ljsm/snes-sway/internal/util"
 	"gopkg.in/yaml.v3"
 )
 
@@ -36,6 +37,9 @@ var validButtons = map[string]bool{
 // Valid mouse actions
 var validMouseActions = map[string]bool{
 	"click_left": true, "click_right": true, "click_middle": true,
+	"double_left": true,
+	"hold_left": true, "hold_right": true,
+	"release_left": true, "release_right": true,
 	"move_up": true, "move_down": true, "move_left": true, "move_right": true,
 }
 
@@ -70,7 +74,7 @@ type Manager struct {
 }
 
 func NewManager(path string) (*Manager, error) {
-	expanded, err := expandPath(path)
+	expanded, err := util.ExpandPath(path)
 	if err != nil {
 		return nil, fmt.Errorf("expand path: %w", err)
 	}
@@ -93,11 +97,11 @@ func (m *Manager) load() error {
 		return fmt.Errorf("parse config: %w", err)
 	}
 
-	// Expand mode file path
+	// Expand and validate mode file path (must be under home)
 	if cfg.Indicator.ModeFile != "" {
-		expanded, err := expandPath(cfg.Indicator.ModeFile)
+		expanded, err := util.ValidatePathUnderHome(cfg.Indicator.ModeFile)
 		if err != nil {
-			return fmt.Errorf("expand mode file path: %w", err)
+			return fmt.Errorf("mode file path: %w", err)
 		}
 		cfg.Indicator.ModeFile = expanded
 	}
@@ -207,20 +211,6 @@ func (m *Manager) Close() error {
 		return m.watcher.Close()
 	}
 	return nil
-}
-
-func expandPath(path string) (string, error) {
-	if len(path) == 0 {
-		return path, nil
-	}
-	if path[0] == '~' {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("get home dir: %w", err)
-		}
-		return filepath.Join(home, path[1:]), nil
-	}
-	return path, nil
 }
 
 func DefaultConfigPath() string {
