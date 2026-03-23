@@ -255,6 +255,9 @@ func (r *Reader) handleEvent(ev evdev.InputEvent) {
 	}
 }
 
+// eventDrops tracks dropped events for monitoring
+var eventDrops uint64
+
 // sendEventLocked sends an event without blocking; drops if buffer full
 // Must be called with r.mu held
 func (r *Reader) sendEventLocked(ev Event) {
@@ -262,8 +265,14 @@ func (r *Reader) sendEventLocked(ev Event) {
 	case r.events <- ev:
 	default:
 		// Buffer full, drop event to prevent blocking
-		fmt.Fprintf(os.Stderr, "warning: event buffer full, dropping %s\n", ev.Button)
+		eventDrops++
+		fmt.Fprintf(os.Stderr, "warning: event buffer full, dropping %s (total drops: %d)\n", ev.Button, eventDrops)
 	}
+}
+
+// EventDrops returns the total number of dropped events
+func EventDrops() uint64 {
+	return eventDrops
 }
 
 func selectChordButton(btn Button) Button {

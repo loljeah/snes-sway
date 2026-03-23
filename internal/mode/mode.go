@@ -176,11 +176,11 @@ func (m *Manager) writeModeFile() {
 
 func (m *Manager) writeModeFileSync(path, mode string) error {
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("create dir: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(mode), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(mode), 0640); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 

@@ -44,9 +44,34 @@ func findBinary(name string, candidates ...string) string {
 
 // ValidateSetup checks if required binaries are available
 func ValidateSetup() error {
-	if _, err := exec.LookPath(swaymsgPath); err != nil {
-		return fmt.Errorf("swaymsg not found at %s", swaymsgPath)
+	required := map[string]string{
+		"swaymsg": swaymsgPath,
+		"wlrctl":  wlrctlPath,
 	}
+	optional := map[string]string{
+		"wtype":       wtypePath,
+		"dotool":      dotoolPath,
+		"notify-send": notifySendPath,
+	}
+
+	var missing []string
+	for name, path := range required {
+		if _, err := exec.LookPath(path); err != nil {
+			missing = append(missing, name)
+		}
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf("required binaries not found: %v", missing)
+	}
+
+	// Warn about optional binaries
+	for name, path := range optional {
+		if _, err := exec.LookPath(path); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: optional binary %s not found (some features may not work)\n", name)
+		}
+	}
+
 	return nil
 }
 
