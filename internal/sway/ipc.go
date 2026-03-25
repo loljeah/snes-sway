@@ -234,8 +234,21 @@ func (e *Executor) Notify(title, body string) error {
 	return e.runCommand(notifySendPath, args...)
 }
 
-// dotool sends a command to dotool via stdin
+// validDotoolCommands restricts dotool input to known-safe commands
+var validDotoolCommands = map[string]bool{
+	"buttondown left":  true,
+	"buttondown right": true,
+	"buttonup left":    true,
+	"buttonup right":   true,
+}
+
+// dotool sends a command to dotool via stdin.
+// Only known-safe commands are allowed to prevent command injection.
 func (e *Executor) dotool(command string) error {
+	if !validDotoolCommands[command] {
+		return fmt.Errorf("dotool: rejected unknown command %q", command)
+	}
+
 	cmd := exec.Command(dotoolPath)
 	cmd.Stdin = strings.NewReader(command + "\n")
 

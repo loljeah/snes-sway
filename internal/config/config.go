@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/ljsm/snes-sway/internal/util"
@@ -86,7 +87,55 @@ func NewManager(path string) (*Manager, error) {
 	return m, nil
 }
 
+// validateFileOwnership checks that the config file is owned by the current user
+// and is not world-writable, preventing other users from injecting exec: commands.
+// Symlinks to /nix/store/ are allowed (NixOS Home Manager creates these).
+func validateFileOwnership(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("stat config: %w", err)
+	}
+
+	// Handle symlinks: allow only those pointing to /nix/store/ (immutable, trusted)
+	if info.Mode()&os.ModeSymlink != 0 {
+		target, err := filepath.EvalSymlinks(path)
+		if err != nil {
+			return fmt.Errorf("resolve symlink %s: %w", path, err)
+		}
+		if strings.HasPrefix(target, "/nix/store/") {
+			return nil // NixOS Home Manager managed — immutable store, trusted
+		}
+		return fmt.Errorf("config file %s is a symlink to %s (only /nix/store/ allowed)", path, target)
+	}
+
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		// Non-Linux: skip ownership check but still check permissions
+		perm := info.Mode().Perm()
+		if perm&0002 != 0 {
+			return fmt.Errorf("config file %s is world-writable (mode %04o)", path, perm)
+		}
+		return nil
+	}
+
+	uid := os.Getuid()
+	if int(stat.Uid) != uid {
+		return fmt.Errorf("config file %s is owned by uid %d, expected %d", path, stat.Uid, uid)
+	}
+
+	perm := info.Mode().Perm()
+	if perm&0002 != 0 {
+		return fmt.Errorf("config file %s is world-writable (mode %04o)", path, perm)
+	}
+
+	return nil
+}
+
 func (m *Manager) load() error {
+	if err := validateFileOwnership(m.path); err != nil {
+		return err
+	}
+
 	data, err := os.ReadFile(m.path)
 	if err != nil {
 		return fmt.Errorf("read config: %w", err)
@@ -136,7 +185,21 @@ func (m *Manager) Get() *Config {
 			Modes:       make(map[string]Mode),
 		}
 	}
-	return m.config
+	return m.config.Copy()
+}
+
+// Copy returns a deep copy of the Config to prevent callers from mutating shared state.
+func (c *Config) Copy() *Config {
+	cp := *c
+	cp.Modes = make(map[string]Mode, len(c.Modes))
+	for name, mode := range c.Modes {
+		modeCopy := make(Mode, len(mode))
+		for k, v := range mode {
+			modeCopy[k] = v
+		}
+		cp.Modes[name] = modeCopy
+	}
+	return &cp
 }
 
 func (m *Manager) Watch(onChange func(*Config)) error {

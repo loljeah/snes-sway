@@ -79,7 +79,7 @@ func (t *Tray) eventLoop(mQuit *systray.MenuItem) {
 
 			if enabled {
 				t.enableItem.SetTitle("Disable")
-				t.updateIconLocked(mode)
+				t.updateIcon(mode)
 				systray.SetTooltip("SNES Controller - " + mode + " Mode")
 			} else {
 				t.enableItem.SetTitle("Enable")
@@ -107,7 +107,7 @@ func (t *Tray) eventLoop(mQuit *systray.MenuItem) {
 	}
 }
 
-func (t *Tray) updateIconLocked(mode string) {
+func (t *Tray) updateIcon(mode string) {
 	switch mode {
 	case "navigation":
 		systray.SetIcon(iconNavigation)
@@ -141,7 +141,7 @@ func (t *Tray) SetMode(mode string) {
 		return
 	}
 
-	t.updateIconLocked(mode)
+	t.updateIcon(mode)
 	systray.SetTooltip("SNES Controller - " + mode + " Mode")
 }
 

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	evdev "github.com/holoplot/go-evdev"
@@ -255,7 +256,7 @@ func (r *Reader) handleEvent(ev evdev.InputEvent) {
 	}
 }
 
-// eventDrops tracks dropped events for monitoring
+// eventDrops tracks dropped events for monitoring (accessed atomically)
 var eventDrops uint64
 
 // sendEventLocked sends an event without blocking; drops if buffer full
@@ -265,14 +266,14 @@ func (r *Reader) sendEventLocked(ev Event) {
 	case r.events <- ev:
 	default:
 		// Buffer full, drop event to prevent blocking
-		eventDrops++
-		fmt.Fprintf(os.Stderr, "warning: event buffer full, dropping %s (total drops: %d)\n", ev.Button, eventDrops)
+		drops := atomic.AddUint64(&eventDrops, 1)
+		fmt.Fprintf(os.Stderr, "warning: event buffer full, dropping %s (total drops: %d)\n", ev.Button, drops)
 	}
 }
 
 // EventDrops returns the total number of dropped events
 func EventDrops() uint64 {
-	return eventDrops
+	return atomic.LoadUint64(&eventDrops)
 }
 
 func selectChordButton(btn Button) Button {

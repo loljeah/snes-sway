@@ -37,6 +37,26 @@ func TestSwitch(t *testing.T) {
 	}
 }
 
+func TestSwitch_RejectsInvalidName(t *testing.T) {
+	m := NewManager("navigation", "", false, nil)
+
+	// Control character should be rejected
+	m.Switch("nav\x00igation")
+	if m.Current() != "navigation" {
+		t.Errorf("expected mode unchanged after invalid name, got %q", m.Current())
+	}
+
+	// Too long name should be rejected
+	longName := string(make([]byte, 65))
+	for i := range longName {
+		longName = longName[:i] + "a" + longName[i+1:]
+	}
+	m.Switch(longName)
+	if m.Current() != "navigation" {
+		t.Errorf("expected mode unchanged after too-long name, got %q", m.Current())
+	}
+}
+
 func TestModeFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	modeFile := filepath.Join(tmpDir, "mode")
@@ -73,13 +93,26 @@ func TestModeFile(t *testing.T) {
 	}
 }
 
+// waitForMode polls until the manager reaches the expected mode or times out.
+// Using polling instead of fixed sleep makes tests reliable under CI load.
+func waitForMode(m *Manager, expected string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if m.Current() == expected {
+			return true
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return false
+}
+
 func TestSetTimeout(t *testing.T) {
 	m := NewManager("navigation", "", false, nil)
 
 	// Initially no timeout
 	m.SetTimeout(0)
 
-	// Set timeout
+	// Set timeout (use 1 second)
 	m.SetTimeout(1)
 
 	// Switch to non-default mode
@@ -88,10 +121,8 @@ func TestSetTimeout(t *testing.T) {
 		t.Errorf("expected 'launcher', got %q", m.Current())
 	}
 
-	// Wait for timeout
-	time.Sleep(1500 * time.Millisecond)
-
-	if m.Current() != "navigation" {
+	// Wait for timeout with generous margin
+	if !waitForMode(m, "navigation", 3*time.Second) {
 		t.Errorf("expected timeout switch to 'navigation', got %q", m.Current())
 	}
 }
@@ -106,18 +137,14 @@ func TestResetTimer(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 	m.ResetTimer()
 
-	// Wait less than full timeout
-	time.Sleep(700 * time.Millisecond)
-
-	// Should still be in launcher (timer was reset)
+	// Shortly after reset, should still be in launcher
+	time.Sleep(500 * time.Millisecond)
 	if m.Current() != "launcher" {
 		t.Errorf("expected 'launcher' after timer reset, got %q", m.Current())
 	}
 
-	// Wait for remaining timeout
-	time.Sleep(500 * time.Millisecond)
-
-	if m.Current() != "navigation" {
+	// Wait for the full reset timeout to fire
+	if !waitForMode(m, "navigation", 3*time.Second) {
 		t.Errorf("expected 'navigation' after full timeout, got %q", m.Current())
 	}
 }

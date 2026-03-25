@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+	"unicode"
 )
 
 type Manager struct {
@@ -73,16 +74,21 @@ func (m *Manager) ResetTimer() {
 		m.timer.Stop()
 	}
 
-	m.timer = time.AfterFunc(m.timeout, func() {
-		m.mu.Lock()
-		if m.current != m.defaultMode {
-			m.mu.Unlock()
-			m.Switch(m.defaultMode)
-			fmt.Fprintf(os.Stderr, "mode timeout: switched to %s\n", m.defaultMode)
-		} else {
-			m.mu.Unlock()
-		}
-	})
+	m.timer = time.AfterFunc(m.timeout, m.timerFired)
+}
+
+// timerFired is called when the mode timeout expires.
+// It runs in a separate goroutine (from time.AfterFunc), so it's safe to acquire the lock.
+func (m *Manager) timerFired() {
+	m.mu.RLock()
+	current := m.current
+	defaultMode := m.defaultMode
+	m.mu.RUnlock()
+
+	if current != defaultMode {
+		m.Switch(defaultMode)
+		fmt.Fprintf(os.Stderr, "mode timeout: switched to %s\n", defaultMode)
+	}
 }
 
 func (m *Manager) Current() string {
@@ -104,6 +110,18 @@ func (m *Manager) OnModeChange(fn func(mode string)) {
 }
 
 func (m *Manager) Switch(name string) {
+	// Validate mode name: only allow printable ASCII, no control chars
+	for _, r := range name {
+		if !unicode.IsPrint(r) || r > 127 {
+			fmt.Fprintf(os.Stderr, "invalid mode name rejected\n")
+			return
+		}
+	}
+	if len(name) > 64 {
+		fmt.Fprintf(os.Stderr, "mode name too long, rejected\n")
+		return
+	}
+
 	m.mu.Lock()
 	if m.current == name {
 		m.mu.Unlock()
@@ -125,22 +143,14 @@ func (m *Manager) Switch(name string) {
 
 	// Start new timer if not switching to default mode
 	if timeout > 0 && name != defaultMode {
-		m.timer = time.AfterFunc(timeout, func() {
-			m.mu.Lock()
-			if m.current != m.defaultMode {
-				m.mu.Unlock()
-				m.Switch(m.defaultMode)
-				fmt.Fprintf(os.Stderr, "mode timeout: switched to %s\n", m.defaultMode)
-			} else {
-				m.mu.Unlock()
-			}
-		})
+		fmt.Fprintf(os.Stderr, "timer started: %v until auto-switch to %s\n", timeout, defaultMode)
+		m.timer = time.AfterFunc(timeout, m.timerFired)
 	}
 	m.mu.Unlock()
 
 	// Write mode file (outside lock)
 	if modeFile != "" {
-		if err := m.writeModeFileSync(modeFile, name); err != nil {
+		if err := writeModeFileAtomic(modeFile, name); err != nil {
 			fmt.Fprintf(os.Stderr, "write mode file: %v\n", err)
 		}
 	}
@@ -169,19 +179,43 @@ func (m *Manager) writeModeFile() {
 		return
 	}
 
-	if err := m.writeModeFileSync(modeFile, current); err != nil {
+	if err := writeModeFileAtomic(modeFile, current); err != nil {
 		fmt.Fprintf(os.Stderr, "write mode file: %v\n", err)
 	}
 }
 
-func (m *Manager) writeModeFileSync(path, mode string) error {
+// writeModeFileAtomic writes the mode file atomically via temp file + rename.
+// This prevents readers (e.g. waybar) from seeing partial writes.
+func writeModeFileAtomic(path, mode string) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("create dir: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(mode), 0640); err != nil {
-		return fmt.Errorf("write file: %w", err)
+	tmp, err := os.CreateTemp(dir, ".mode-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+
+	if _, err := tmp.WriteString(mode); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmp.Chmod(0640); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("chmod temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("rename temp file: %w", err)
 	}
 
 	return nil

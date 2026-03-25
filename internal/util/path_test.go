@@ -53,13 +53,15 @@ func TestValidatePathUnderHome(t *testing.T) {
 		result, err := ValidatePathUnderHome(path)
 		if err != nil {
 			t.Errorf("ValidatePathUnderHome(%q) should be valid, got error: %v", path, err)
+			continue
 		}
-		if !strings.HasPrefix(result, home) && result[0] != '~' {
-			// Result should start with home or be tilde-expanded
-			expanded, _ := ExpandPath(result)
-			if !strings.HasPrefix(expanded, home) {
-				t.Errorf("ValidatePathUnderHome(%q) returned %q which is not under home", path, result)
-			}
+		if result == "" {
+			t.Errorf("ValidatePathUnderHome(%q) returned empty string", path)
+			continue
+		}
+		expanded, _ := ExpandPath(result)
+		if !strings.HasPrefix(expanded, home) {
+			t.Errorf("ValidatePathUnderHome(%q) returned %q which is not under home", path, result)
 		}
 	}
 
@@ -75,5 +77,56 @@ func TestValidatePathUnderHome(t *testing.T) {
 		if err == nil {
 			t.Errorf("ValidatePathUnderHome(%q) should fail for path outside home", path)
 		}
+	}
+}
+
+func TestValidatePathUnderHome_TraversalAttacks(t *testing.T) {
+	// Attempts to escape home via ../
+	traversalPaths := []string{
+		"~/../../etc/passwd",
+		"~/../../../tmp/evil",
+		"~/safe/../../../../../../etc/shadow",
+	}
+
+	for _, path := range traversalPaths {
+		_, err := ValidatePathUnderHome(path)
+		if err == nil {
+			t.Errorf("ValidatePathUnderHome(%q) should reject traversal attack", path)
+		}
+	}
+}
+
+func TestValidatePathUnderHome_PrefixBypass(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("could not get home dir: %v", err)
+	}
+
+	// Construct a path that has home as a prefix but is actually a different directory
+	// e.g., if home is /home/ljsm, test /home/ljsm_evil/...
+	fakeHome := home + "_evil/config"
+
+	_, err = ValidatePathUnderHome(fakeHome)
+	if err == nil {
+		t.Errorf("ValidatePathUnderHome(%q) should reject path with home as prefix but different directory", fakeHome)
+	}
+}
+
+func TestValidatePathUnderHome_NixOSSymlinks(t *testing.T) {
+	// On NixOS, Home Manager creates symlinks from ~/.config/ to /nix/store/.
+	// ValidatePathUnderHome checks the logical path (filepath.Clean), not the
+	// symlink target. Paths under home should be accepted regardless of symlinks.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("could not get home dir: %v", err)
+	}
+
+	configPath := filepath.Join(home, ".config", "snes-sway", "config.yaml")
+	result, err := ValidatePathUnderHome(configPath)
+	if err != nil {
+		t.Errorf("ValidatePathUnderHome(%q) should accept path under home: %v", configPath, err)
+	}
+	if result == "" {
+		t.Errorf("ValidatePathUnderHome(%q) returned empty string", configPath)
 	}
 }

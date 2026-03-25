@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=SNES Sway
+GenericName=Controller Daemon
+Comment=SNES controller daemon for Sway window manager
+Exec=snes-sway
+Icon=snes-sway
+Terminal=false
+Categories=Utility;
+Keywords=snes;controller;sway;gamepad;joystick;

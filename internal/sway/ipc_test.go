@@ -88,3 +88,39 @@ func TestNixProfileBin(t *testing.T) {
 		t.Errorf("expected path to contain .nix-profile/bin/test-binary, got %q", path)
 	}
 }
+
+func TestDotool_ValidCommands(t *testing.T) {
+	validCommands := []string{
+		"buttondown left",
+		"buttondown right",
+		"buttonup left",
+		"buttonup right",
+	}
+
+	for _, cmd := range validCommands {
+		if !validDotoolCommands[cmd] {
+			t.Errorf("expected %q to be a valid dotool command", cmd)
+		}
+	}
+}
+
+func TestDotool_RejectsUnknownCommands(t *testing.T) {
+	e := NewExecutor()
+
+	invalidCommands := []string{
+		"key a",
+		"type hello",
+		"exec rm -rf /",
+		"buttondown middle",
+	}
+
+	for _, cmd := range invalidCommands {
+		err := e.dotool(cmd)
+		if err == nil {
+			t.Errorf("expected error for invalid dotool command %q", cmd)
+		}
+		if !strings.Contains(err.Error(), "rejected unknown command") {
+			t.Errorf("expected 'rejected unknown command' error for %q, got: %v", cmd, err)
+		}
+	}
+}

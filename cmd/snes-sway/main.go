@@ -206,8 +206,8 @@ func runDaemon(t *tray.Tray) error {
 				t.SetMode("disconnected")
 			}
 
-			// Wait for device to reappear
-			for {
+			reconnected := false
+			for !reconnected {
 				select {
 				case <-sigChan:
 					fmt.Fprintln(os.Stderr, "shutting down")
@@ -232,10 +232,9 @@ func runDaemon(t *tray.Tray) error {
 					if t != nil {
 						t.SetMode(modeMgr.Current())
 					}
-					goto reconnected
+					reconnected = true
 				}
 			}
-		reconnected:
 			continue
 		}
 
