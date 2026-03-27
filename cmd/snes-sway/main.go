@@ -6,22 +6,18 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
-	"fyne.io/systray"
 	"github.com/ljsm/snes-sway/internal/config"
 	"github.com/ljsm/snes-sway/internal/input"
 	"github.com/ljsm/snes-sway/internal/mode"
 	"github.com/ljsm/snes-sway/internal/repeat"
 	"github.com/ljsm/snes-sway/internal/sway"
-	"github.com/ljsm/snes-sway/internal/tray"
 )
 
 var (
 	debug        bool
-	noTray       bool
 	configPath   string
 	generateConf bool
 	validateOnly bool
@@ -30,7 +26,6 @@ var (
 func main() {
 	flag.StringVar(&configPath, "config", config.DefaultConfigPath(), "config file path")
 	flag.BoolVar(&debug, "debug", false, "print button events")
-	flag.BoolVar(&noTray, "no-tray", false, "disable system tray icon")
 	flag.BoolVar(&generateConf, "generate-config", false, "interactively generate config file")
 	flag.BoolVar(&validateOnly, "validate", false, "validate config and exit")
 	flag.Parse()
@@ -51,15 +46,9 @@ func main() {
 		return
 	}
 
-	if noTray {
-		// Run without systray
-		if err := runDaemon(nil); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
-		}
-	} else {
-		// systray.Run must be called from main thread
-		systray.Run(onReady, onExit)
+	if err := runDaemon(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -82,56 +71,7 @@ func runValidation() error {
 	return fmt.Errorf("%d validation warnings", len(warnings))
 }
 
-var (
-	mu           sync.RWMutex
-	trayInstance *tray.Tray
-	quitChan     = make(chan struct{})
-	quitOnce     sync.Once
-	enabled      = true
-)
-
-func onReady() {
-	trayInstance = tray.NewWithSystray(
-		func() {
-			quitOnce.Do(func() {
-				close(quitChan)
-			})
-			systray.Quit()
-		},
-		func(e bool) {
-			mu.Lock()
-			enabled = e
-			mu.Unlock()
-			if e {
-				fmt.Fprintln(os.Stderr, "controller enabled")
-			} else {
-				fmt.Fprintln(os.Stderr, "controller disabled")
-			}
-		},
-	)
-
-	go func() {
-		if err := runDaemon(trayInstance); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			systray.Quit()
-		}
-	}()
-}
-
-func onExit() {
-	// Cleanup - ensure quitChan is closed
-	quitOnce.Do(func() {
-		close(quitChan)
-	})
-}
-
-func isEnabled() bool {
-	mu.RLock()
-	defer mu.RUnlock()
-	return enabled
-}
-
-func runDaemon(t *tray.Tray) error {
+func runDaemon() error {
 	if err := config.EnsureConfigDir(); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
@@ -170,14 +110,6 @@ func runDaemon(t *tray.Tray) error {
 	// Set mode timeout
 	modeMgr.SetTimeout(cfg.ModeTimeout)
 
-	if t != nil {
-		modeMgr.OnModeChange(func(m string) {
-			t.SetMode(m)
-		})
-		// Set initial mode
-		t.SetMode(cfg.DefaultMode)
-	}
-
 	// Watch config for hot reload
 	if err := cfgMgr.Watch(func(newCfg *config.Config) {
 		fmt.Fprintln(os.Stderr, "config reloaded")
@@ -193,7 +125,7 @@ func runDaemon(t *tray.Tray) error {
 
 	// Auto-reconnect loop
 	for {
-		err := runInputLoop(t, cfgMgr, modeMgr, executor, cfg, sigChan)
+		err := runInputLoop(cfgMgr, modeMgr, executor, cfg, sigChan)
 		if err == nil {
 			// Clean shutdown
 			return nil
@@ -202,18 +134,12 @@ func runDaemon(t *tray.Tray) error {
 		// Check if it's a device disconnect
 		if strings.Contains(err.Error(), "disconnected") || strings.Contains(err.Error(), "find device") {
 			fmt.Fprintf(os.Stderr, "device disconnected, waiting for reconnect...\n")
-			if t != nil {
-				t.SetMode("disconnected")
-			}
 
 			reconnected := false
 			for !reconnected {
 				select {
 				case <-sigChan:
 					fmt.Fprintln(os.Stderr, "shutting down")
-					return nil
-				case <-quitChan:
-					fmt.Fprintln(os.Stderr, "quit from tray")
 					return nil
 				case <-time.After(2 * time.Second):
 					// Try to find device again
@@ -229,9 +155,6 @@ func runDaemon(t *tray.Tray) error {
 
 					// Device found, break out of reconnect loop
 					fmt.Fprintf(os.Stderr, "device reconnected: %s\n", devicePath)
-					if t != nil {
-						t.SetMode(modeMgr.Current())
-					}
 					reconnected = true
 				}
 			}
@@ -243,7 +166,7 @@ func runDaemon(t *tray.Tray) error {
 	}
 }
 
-func runInputLoop(t *tray.Tray, cfgMgr *config.Manager, modeMgr *mode.Manager, executor *sway.Executor, cfg *config.Config, sigChan chan os.Signal) error {
+func runInputLoop(cfgMgr *config.Manager, modeMgr *mode.Manager, executor *sway.Executor, cfg *config.Config, sigChan chan os.Signal) error {
 	// Find or use configured device
 	devicePath := cfg.Device.Path
 	if devicePath == "" {
@@ -276,13 +199,6 @@ func runInputLoop(t *tray.Tray, cfgMgr *config.Manager, modeMgr *mode.Manager, e
 		select {
 		case <-sigChan:
 			fmt.Fprintln(os.Stderr, "shutting down")
-			if t != nil {
-				systray.Quit()
-			}
-			return nil
-
-		case <-quitChan:
-			fmt.Fprintln(os.Stderr, "quit from tray")
 			return nil
 
 		case <-reader.Disconnected():
@@ -299,14 +215,6 @@ func runInputLoop(t *tray.Tray, cfgMgr *config.Manager, modeMgr *mode.Manager, e
 					state = "pressed"
 				}
 				fmt.Fprintf(os.Stderr, "[debug] %s %s\n", ev.Button, state)
-			}
-
-			// Skip if disabled
-			if !isEnabled() {
-				if !ev.Pressed {
-					repeater.Release(string(ev.Button))
-				}
-				continue
 			}
 
 			// Reset mode timeout on any button press

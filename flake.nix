@@ -13,11 +13,11 @@
       # Package builder — used by overlay and per-system packages
       mkSnesSway = { pkgs }: pkgs.buildGoModule {
         pname = "snes-sway";
-        version = "0.1.0";
+        version = "0.2.0";
 
         src = ./.;
 
-        vendorHash = "sha256-k4WEPfgkBxKfwpJ85sY7MROZhucNrSOo4BKAsjHn15o=";
+        vendorHash = "sha256-R6RJ5tmXU0omxclq3DtLKTHGilGvfkJVqFQrA5SSTQU=";
 
         subPackages = [ "cmd/snes-sway" ];
 
@@ -26,17 +26,11 @@
         postInstall = ''
           wrapProgram $out/bin/snes-sway \
             --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.libnotify pkgs.sway pkgs.wlrctl pkgs.wtype pkgs.dotool ]}
-
-          # Install .desktop file for rofi/dmenu discoverability
-          install -Dm644 ${./snes-sway.desktop} $out/share/applications/snes-sway.desktop
-
-          # Install icon
-          install -Dm644 ${./internal/tray/icons/navigation.png} $out/share/icons/hicolor/48x48/apps/snes-sway.png
         '';
 
         meta = with pkgs.lib; {
           description = "SNES controller daemon for Sway window manager";
-          homepage = "https://github.com/loljeah/snes-sway";
+          homepage = "https://github.com/ljsm/snes-sway";
           license = licenses.mit;
           platforms = platforms.linux;
           mainProgram = "snes-sway";
@@ -62,6 +56,9 @@
             go-tools
             libnotify
             sway
+            wlrctl
+            wtype
+            dotool
           ];
 
           shellHook = ''

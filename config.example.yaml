@@ -1,5 +1,6 @@
 # snes-sway configuration
 # Copy to ~/.config/snes-sway/config.yaml
+# Or use Home Manager: services.snes-sway.enable = true;
 
 # Device settings
 device:
@@ -16,20 +17,25 @@ indicator:
   # Show notification on mode switch
   notify: true
 
-# Mode timeout in seconds (0 or negative to disable)
+# Mode timeout in seconds (-1 to disable)
 # After this time of inactivity, auto-return to default_mode
 mode_timeout: 30
+
+# Default mode on startup
+default_mode: navigation
 
 # Button mappings per mode
 # Available buttons: a, b, x, y, l, r, up, down, left, right
 # Modifier buttons (do nothing alone): start, select
 # Chord buttons: select+<btn>, start+<btn>
+#
 # Actions:
 #   sway:<command>  - run swaymsg <command>
 #   exec:<command>  - run shell command
 #   key:<keyname>   - send keypress via wtype (e.g., key:Up, key:Return)
-#   mouse:<action>  - mouse control (requires wlrctl)
-#                     click_left, click_right, click_middle
+#   mouse:<action>  - mouse control (requires wlrctl/dotool)
+#                     click_left, click_right, click_middle, double_left
+#                     hold_left, hold_right, release_left, release_right
 #                     move_up, move_down, move_left, move_right
 #                     optional speed: mouse:move_up:30
 #   mode:<name>     - switch to mode
@@ -57,6 +63,7 @@ modes:
     select+x: "mode:mouse"
     # Start chords
     start+a:  "exec:wofi --show drun"
+    start+b:  "mode:launcher"
 
   input:
     # D-pad sends arrow keys to focused window
@@ -94,29 +101,49 @@ modes:
     # Shoulders: fast horizontal movement
     l:      "mouse:move_left:50"
     r:      "mouse:move_right:50"
-    # Select chords: slow/precise movement
-    select+b: "sway:kill"
+    # Select chords: precision movement
+    select+up:    "mouse:move_up:4"
+    select+down:  "mouse:move_down:4"
+    select+left:  "mouse:move_left:4"
+    select+right: "mouse:move_right:4"
+    select+a:     "mouse:double_left"
+    select+x:     "mode:drag"
+    select+b:     "sway:kill"
+
+  drag:
+    # Left button held while in this mode
+    # Movement for text selection or window dragging
+    up:     "mouse:move_up:16"
+    down:   "mouse:move_down:16"
+    left:   "mouse:move_left:16"
+    right:  "mouse:move_right:16"
+    # A or B: release and exit
+    a:      "mouse:release_left"
+    b:      "mouse:release_left"
+    # Fast movement
+    l:      "mouse:move_left:50"
+    r:      "mouse:move_right:50"
+    # Precision
     select+up:    "mouse:move_up:4"
     select+down:  "mouse:move_down:4"
     select+left:  "mouse:move_left:4"
     select+right: "mouse:move_right:4"
 
   launcher:
+    # D-pad: still navigate
     up:     "sway:focus up"
     down:   "sway:focus down"
     left:   "sway:focus left"
     right:  "sway:focus right"
+    # Face buttons: quick app launch
     a:      "exec:foot"
     b:      "exec:firefox"
     x:      "exec:thunar"
     y:      "exec:code"
+    # Shoulders: workspace navigation
     l:      "sway:workspace prev"
     r:      "sway:workspace next"
     # Chords
     select+b: "sway:kill"
-    select+l: "sway:focus output left"
-    select+r: "sway:focus output right"
     start+a:  "exec:wofi --show drun"
-
-# Default mode on startup
-default_mode: navigation
+    start+b:  "mode:navigation"

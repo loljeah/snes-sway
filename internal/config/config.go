@@ -291,7 +291,8 @@ func EnsureConfigDir() error {
 		return fmt.Errorf("get home dir: %w", err)
 	}
 	dir := filepath.Join(home, ".config", "snes-sway")
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	// Use 0750 for config directory containing potentially sensitive data
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 	return nil
