@@ -17,7 +17,7 @@
 
         src = ./.;
 
-        vendorHash = "sha256-R6RJ5tmXU0omxclq3DtLKTHGilGvfkJVqFQrA5SSTQU=";
+        vendorHash = "sha256-rvIct3sqcKMj9UMj9tvGfqnNS4N0mFCg85z0brYIWns=";
 
         subPackages = [ "cmd/snes-sway" ];
 
